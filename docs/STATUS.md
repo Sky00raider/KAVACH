@@ -26,6 +26,7 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 - 9. `requirements.txt` (pinned, 3.11+), `pytest.ini` with `llm` marker, tests for config/db/stubs/scripts
 - 4. `api.py`: every §9 route wired to stubs; owner auth (token + `request.client.host` loopback, no proxy headers, `--no-proxy-headers`); index.html token injection (loopback only, placeholder until `frontend/dist` exists); §10 SSE stream with `error` on exceptions; safe non-overwriting uploads; `/api/ingest/events` from `ingested` audit entries; `X-Channel: mcp` only from loopback. CONTRACT: `consent.poll` (+ fp match), `consent.RequestRejected`, `pairing.decide`, `decide.claims`, reject reasons `unknown_request`/`wrong_requester`/`malformed`, `ingested` detail shape, queue contents, facts `current=true` default, per-role `model_loaded`. `tests/test_api.py`
 - 6. `requester/` (`app.py` §12 routes stubbed + requester-mode frontend, `verifier.py` stub that never passes a check, `agent_client.py` stub, `trusted_issuers.json`); `gate_mcp.py` (3 tools, streamable HTTP `:8001/mcp`) and `tools_mcp.py` (4 tools, stdio, args validated by models.py) with stub bodies; verified live over HTTP and stdio. `tests/test_requester.py`, `tests/test_mcp.py`
+- Owner token is lazy: `keys/owner_token` created on the owner API's first use, never on import
 
 **Next**
 7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`

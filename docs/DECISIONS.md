@@ -30,6 +30,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-26 | `/api/ingest` routes `.pdf`/`.md`/`.txt` to `pdfs/`/`notes/`/`chats/`, else `415`; basename only (`400` on empty, `..`, absolute or drive paths); never overwrites (same bytes `200`, different `409`) | Uploads cannot escape `vault/` or silently replace an ingested document |
 | 2026-09-26 | Malformed `/api/ask*` requests are audited as `request_rejected`, `reason=malformed`, detail `{reason, route, client_ip, error_type}` only (TRUST step 6); `/api/queue` = all requesters, not-done requests, planned tasks; `/api/facts` defaults to `current=true`; `Health.model_loaded` is a per-role map | Hard rule 6 covers validation failures too without logging attacker-controlled bodies; queue and facts defaults match what the pages show; one bool could not say which model is cold |
 | 2026-09-26 | MCP servers use `MCPServer` from `mcp` 2.x (FastMCP was renamed); gate binds 0.0.0.0 so the SDK's loopback-only DNS-rebinding check is off; `requester/verifier.py` stub reports every check as failed; requester data dir overridable with `REQUESTER_DATA_DIR` | Pinned SDK is 2.x; requester laptop must reach the gate over the LAN; a stub must never show a proof as verified |
+| 2026-09-26 | `config.OWNER_TOKEN` is lazy: `keys/owner_token` is created (exclusive create, never replaced) on the owner API's first use, not on import | The requester laptop, scripts and MCP servers import config and must not get an owner token |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 
