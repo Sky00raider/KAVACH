@@ -17,21 +17,21 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 ## CONTRACT / scaffold (§6.1)
 
 **Done**
-- Docs committed (AGENTS, CONTRACT, BUILD_PLAN, DECISIONS)
+- Docs committed (AGENTS, CONTRACT, BUILD_PLAN, DECISIONS); STATUS + `/next` command
+- 1. Python package per §1: every §7 function stubbed with typed placeholders; `config.py` per §3
+- 2. `kavach/models.py`: every CONTRACT shape (open shapes marked "(scaffold)", see DECISIONS)
+- 3. `db.py`: §8 schema, `init_db`, generic + typed helpers
+- 5. `fixtures/api/*.json` per §15 (+ `chunk.json`), `tests/test_fixtures.py` (incl. audit hash chain)
+- 8. `scripts/bench_models.py` (verified against local Ollama), `scripts/reset_demo.py` skeleton (file steps work)
+- 9. `requirements.txt` (pinned, 3.11+), `pytest.ini` with `llm` marker, tests for config/db/stubs/scripts
 
 **Next**
-1. Python package per CONTRACT §1, stubs for every §7 function, `config.py` per §3
-2. `kavach/models.py`: Pydantic v2 models for every CONTRACT shape
-3. `db.py`: schema §8, init + helpers
 4. `api.py`: every §9 route wired to stubs, owner auth, token injection, canned §10 chat stream
-5. `fixtures/api/*.json` per §15 + `tests/test_fixtures.py`
 6. `requester/app.py` (§12 stubs); `gate_mcp.py`, `tools_mcp.py` with tools registered
 7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`
-8. `scripts/bench_models.py`, `scripts/reset_demo.py` skeleton
-9. `requirements.txt` (pinned), `pytest.ini` with `llm` marker, `tests/` skeleton
 
 **Blocked**
-- (none)
+- Model choice: default `qwen3:8b` / `qwen3:4b` not pulled on the owner laptop yet. Bench on it with qwen2.5:7b / qwen2.5:3b / nomic-embed-text (2 runs): first token 2.8 s OK, parse 3.9 s SLOW, embed 100 chunks 33.8 s SLOW
 
 ## BRAIN (§6.2)
 
