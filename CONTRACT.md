@@ -198,6 +198,7 @@ memory.decide_candidate(candidate_id: str, remember: bool) -> Fact | Entity | No
 memory.timeline(field: str | None) -> list[FactVersion]
 parse_question.parse(question: str) -> Claim
 decide.decide(claim: Claim, requester_fp: str) -> Proposal
+decide.claims() -> ClaimsOut                         # §5.1 names + issuer-provability, never values
 planner.plan(instruction: str) -> Plan                # validated, never executes
 
 # trust (TRUST)
@@ -209,12 +210,16 @@ present.build_presentation(ref: CredentialRef, issuer_claim: str, nonce: str, au
 present.build_attestation(claim: Claim, answer: bool, requester_fp: str, nonce: str) -> dict
 ledger.check(claim: Claim, answer: bool) -> LedgerCheck          # allowed, reason
 ledger.record(claim: Claim, answer: bool) -> None
-consent.receive(req: AskIn, channel: str) -> AskAck
+consent.receive(req: AskIn, channel: str) -> AskAck               # raises RequestRejected
+consent.poll(request_id: str, requester_fp: str, ts: int, sig: str) -> AskResult   # raises RequestRejected
 consent.decide_request(request_id: str, action: str) -> RequestView
+pairing.decide(fp: str, approve: bool) -> Requester   # approve -> paired + pairwise key; else blocked
 audit.log(event: str, ref_id: str | None, detail: dict) -> int
 audit.verify_chain() -> ChainStatus
 executor.execute(task_id: str) -> list[ToolResult]
 ```
+
+`consent.RequestRejected(reason: RejectReason)` is the exception `receive` and `poll` raise after auditing the rejection; `api.py` maps `reason` to the HTTP status in §9. `poll` checks `X-Sig` over `"{id}|{ts}"` with the key of `requester_fp`, the 120 s window, and that `requester_fp` equals the request's `requester_fp`, so one requester can never read another's answer.
 
 Shapes used above that are not defined elsewhere in this contract:
 
@@ -271,12 +276,14 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 
 **Auth:** owner routes need header `X-Owner-Token` AND a loopback client address. `GET /` (and any non-`/api` path) serves `frontend/dist/index.html` with `<script>window.__KAVACH__={"mode":"owner","token":"..."}</script>` injected, token included only for loopback clients.
 
+Loopback means `request.client.host` is `127.0.0.1` or `::1`, nothing else. `X-Forwarded-For` and other proxy headers are never trusted; uvicorn runs with `--no-proxy-headers` so it does not rewrite the client address. Missing or wrong token -> `401`; non-loopback client -> `403`.
+
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
 | GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: bool, db: bool, vault_dir}` |
-| POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` |
+| POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` (vault-relative). `.pdf` -> `pdfs/`, `.md` -> `notes/`, `.txt` -> `chats/`, else `415`. Filename is reduced to its basename; empty, `.`/`..`, absolute or drive paths -> `400` (the multipart parser may already reduce a Windows full path to its basename, which is then stored as such). An existing file is never overwritten: same bytes -> `200` with its path, different bytes -> `409` |
 | POST | `/api/ingest/sync` | | rescan -> `{ingested:[IngestResult]}` |
-| GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}` |
+| GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
 | GET | `/api/documents` | | `[Document]` |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
 | GET | `/api/facts` | `?field=&current=true` | `[Fact]` |
@@ -303,9 +310,11 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 |---|---|---|---|
 | POST | `/api/ask` | `{requester_pubkey, requester_name, requester_type, question, nonce, ts, sig}` | `{request_id, status}` |
 | GET | `/api/ask/{id}` | headers `X-Requester-Fp`, `X-Ts`, `X-Sig` (sig over `"{id}|{ts}"`) | `{status, answer_type, payload, owner_pairwise_pubkey?}` |
-| GET | `/api/claims` | | disclosable claim names + which are issuer-provable (no values) |
+| GET | `/api/claims` | | `decide.claims()`: disclosable claim names + which are issuer-provable, never values (hard rule 5) |
 
-`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` (body) and `X-Ts` (header) are **Unix integer seconds** and must be within 120 s of the owner's clock; `X-Sig` signs the string `"{id}|{ts}"` with `ts` as a decimal integer. Every other timestamp in this contract is UTC ISO 8601 with `Z`. Nonce reuse per requester is rejected. Rejections return `401` (bad sig, stale ts), `409` (nonce reuse) or `403` (blocked requester) and are audited as `request_rejected` (§13). Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
+`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` (body) and `X-Ts` (header) are **Unix integer seconds** and must be within 120 s of the owner's clock; `X-Sig` signs the string `"{id}|{ts}"` with `ts` as a decimal integer. Every other timestamp in this contract is UTC ISO 8601 with `Z`. Nonce reuse per requester is rejected. Rejections return `401` (bad sig, stale ts), `409` (nonce reuse), `403` (blocked requester) or `404` (unknown request id, or a poll whose `X-Requester-Fp` is not the request's requester; same response for both so ids cannot be probed) and are audited as `request_rejected` (§13). Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
+
+`X-Channel: mcp` on `/api/ask*` is honoured only from a loopback client (the gate); from any other address the channel is forced to `web`.
 
 **RequestView** (items of `/api/queue` `requests`, and the decision response): `{request_id, requester_fp, requester_name, channel, question, claim: Claim|null, proposal: Proposal|null, status, answer_type|null, created_at, decided_at|null}`. `claim` and `proposal` are null while `pending_pairing`.
 
@@ -362,7 +371,9 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 `ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
 
-`request_rejected`: a request that failed before entering the pipeline. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked` (`models.RejectReason`).
+`request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester` (`models.RejectReason`).
+
+`ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}` with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 
 ## 14. Frontend contract
 

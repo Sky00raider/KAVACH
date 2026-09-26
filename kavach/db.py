@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from kavach import config
 from kavach.models import (
     AuditEntry,
@@ -25,6 +27,9 @@ from kavach.models import (
     Graph,
     GraphEdge,
     GraphNode,
+    IngestedDetail,
+    IngestEvent,
+    IngestEvents,
     Plan,
     Requester,
     RequestView,
@@ -286,6 +291,22 @@ def audit_entries(limit: int = 200) -> list[AuditEntry]:
     return [AuditEntry(seq=r["seq"], ts=r["ts"], event=r["event"], ref_id=r["ref_id"],
                        detail=json.loads(r["detail_json"] or "{}"), prev_hash=r["prev_hash"],
                        entry_hash=r["entry_hash"]) for r in rows]
+
+
+def ingest_events(since: int = 0) -> IngestEvents:
+    """`ingested` audit entries after `since` (CONTRACT §9, §13). Unparseable details are skipped, not fatal."""
+    rows = fetch_all("SELECT seq, ts, detail_json FROM audit_log WHERE event = 'ingested' AND seq > ? ORDER BY seq",
+                     (since,))
+    events = []
+    for r in rows:
+        try:
+            d = IngestedDetail.model_validate_json(r["detail_json"] or "{}")
+        except ValidationError:
+            continue
+        events.append(IngestEvent(seq=r["seq"], ts=r["ts"], path=d.path, doc_id=d.doc_id,
+                                  signature_status=d.signature_status, entities_added=d.entities_added,
+                                  facts_added=d.facts_added))
+    return IngestEvents(events=events, last_seq=rows[-1]["seq"] if rows else since)
 
 
 def last_audit_hash() -> str:

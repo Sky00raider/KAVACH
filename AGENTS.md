@@ -44,7 +44,7 @@ Each code track builds the UI pages for its own features. Shared UI (layout, sid
 python3.12 -m venv .venv                              # once; use Python 3.12
 source .venv/bin/activate                             # macOS / Linux
 pip install -r requirements.txt
-uvicorn kavach.api:app --host 0.0.0.0 --port 8000     # owner API + built UI
+uvicorn kavach.api:app --host 0.0.0.0 --port 8000 --no-proxy-headers   # owner API + built UI
 python -m kavach.gate_mcp                             # inbound MCP gate on :8001
 uvicorn requester.app:app --host 0.0.0.0 --port 9000  # requester laptop
 cd frontend && npm run dev                            # UI dev server :5173, proxies /api

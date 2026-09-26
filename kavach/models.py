@@ -613,8 +613,21 @@ AuditEvent = Literal[
     "memory_taught", "memory_candidate_accepted", "task_planned", "task_approved", "task_rejected",
     "task_executed", "task_failed", "wallet_low", "request_rejected",
 ]
-# detail.reason of a request_rejected entry
-RejectReason = Literal["bad_sig", "stale_ts", "nonce_reuse", "unknown_requester_blocked"]
+# detail.reason of a request_rejected entry. unknown_request and wrong_requester both return the same 404.
+RejectReason = Literal[
+    "bad_sig", "stale_ts", "nonce_reuse", "unknown_requester_blocked", "unknown_request", "wrong_requester",
+]
+
+
+class IngestedDetail(Model):
+    """`detail` of an `ingested` audit entry (§13): counts and vault-relative path only, never text or values."""
+
+    path: str
+    doc_id: str
+    signature_status: SignatureStatus
+    chunks_added: int
+    entities_added: int
+    facts_added: int
 
 
 class AuditEntry(Model):
