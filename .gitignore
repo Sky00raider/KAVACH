@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Runtime state (never commit)
+kavach.db
+kavach.db.bak
+keys/
+vault/
+outbox/
+requester/data/
+*.log
+.env
+
+# Private inputs (real documents, even redacted)
+private/
+
+# Generated demo artifacts (rebuilt by scripts/reset_demo.py)
+demo_data/generated/
