@@ -44,7 +44,7 @@ def client(fresh_db, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "OUTBOX_DIR", tmp_path / "outbox")
     monkeypatch.setattr(config, "FRONTEND_DIST", tmp_path / "dist")
     monkeypatch.setattr(api, "_ollama_status", lambda: (False, set()))
-    return TestClient(api.app, client=("127.0.0.1", 50000))
+    return TestClient(api.app, client=("127.0.0.1", 50000), base_url="http://127.0.0.1:8000")
 
 
 @pytest.fixture
@@ -74,6 +74,45 @@ def test_owner_routes_are_loopback_only(client, lan):
 def test_proxy_headers_do_not_make_a_lan_client_loopback(client, lan):
     spoof = TOKEN | {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1", "Forwarded": "for=127.0.0.1"}
     assert lan.get("/api/queue", headers=spoof).status_code == 403
+
+
+GOOD_HOSTS = ["localhost", "localhost:8000", "127.0.0.1", "127.0.0.1:8000", "[::1]", "[::1]:8000", "LOCALHOST:5173"]
+BAD_HOSTS = ["evil.example", "evil.example:8000", "localhost.evil.example", "127.0.0.1.nip.io", "localhost:",
+             "localhost:80@evil.example", "localhost:8000:1", "[::1]evil", "[::1", "::1", "0.0.0.0:8000",
+             "192.168.1.20:8000", ""]
+
+
+@pytest.mark.parametrize("host", GOOD_HOSTS)
+def test_owner_routes_accept_loopback_host_headers(client, host):
+    assert client.get("/api/documents", headers=TOKEN | {"Host": host}).status_code == 200
+
+
+@pytest.mark.parametrize("host", BAD_HOSTS)
+def test_owner_routes_reject_non_loopback_host_headers(client, host):
+    # DNS rebinding: a page on evil.example resolved to 127.0.0.1 arrives from loopback with Host: evil.example.
+    assert client.get("/api/documents", headers=TOKEN | {"Host": host}).status_code == 403
+
+
+def test_host_evil_gets_403_on_every_owner_route(client):
+    for route in api.owner.routes:
+        path = route.path.replace("{", "").replace("}", "")
+        for method in route.methods:
+            r = client.request(method, path, headers=TOKEN | {"Host": "evil.example:8000"})
+            assert r.status_code == 403, (method, path)
+
+
+def test_index_withholds_token_from_non_loopback_host(client):
+    config.FRONTEND_DIST.mkdir()
+    (config.FRONTEND_DIST / "index.html").write_text("<html><head><title>K</title></head><body></body></html>")
+    for path in ("/", "/queue", "/index.html"):
+        r = client.get(path, headers={"Host": "evil.example:8000"})
+        assert r.status_code == 200 and _boot(r.text) == {"mode": "owner"}, path
+        assert "test-owner-token" not in r.text
+    assert _boot(client.get("/", headers={"Host": "localhost:8000"}).text)["token"] == "test-owner-token"
+
+
+def test_public_routes_ignore_host(client):
+    assert client.get("/api/claims", headers={"Host": "192.168.1.20:8000"}).status_code == 200
 
 
 def test_every_owner_route_requires_auth(client):
@@ -109,7 +148,7 @@ def test_read_routes_validate(client):
 def test_health_reports_config_models_and_unreachable_ollama(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "OLLAMA_URL", "http://127.0.0.1:9")
     assert api._ollama_status() == (False, set())
-    r = TestClient(api.app, client=("127.0.0.1", 1)).get("/api/health", headers=TOKEN)
+    r = TestClient(api.app, client=("127.0.0.1", 1), base_url="http://localhost:8000").get("/api/health", headers=TOKEN)
     h = Health.model_validate(r.json())
     assert h.models == {"llm": config.LLM_MODEL, "fast": config.FAST_MODEL, "embed": config.EMBED_MODEL}
     assert h.db and not h.ollama and h.model_loaded == {"llm": False, "fast": False, "embed": False}

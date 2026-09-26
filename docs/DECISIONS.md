@@ -37,6 +37,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-27 | Owner/requester mode switch only on the dev server or when no mode is injected; built pages always get their mode from the backend and never mount the other mode's routes | Both UIs can be built on one laptop without a production requester page ever reaching owner routes |
 | 2026-09-27 | Requester-mode status shows the owner connection: `owner_url` from `/r/identity` plus a browser no-cors probe of `{owner_url}/api/claims` | `/r/identity` has no reachability field; the probe needs no contract change (proposed `owner_reachable` field left to TRUST) |
 | 2026-09-27 | Fixture mode loads `fixtures/api` lazily behind a build-time `VITE_USE_FIXTURES` check; normal builds contain no fixture data. §10 stream payload types are derived in `client.ts` from generated `Citation`/`ChatResult` | Demo data never ships in `dist`; SSE bodies are not in OpenAPI |
+| 2026-09-27 | Owner routes and `index.html` token injection require a loopback `Host` header (`localhost`, `127.0.0.1`, `[::1]`, optional port) on top of the loopback client address (CONTRACT §9) | DNS rebinding: a malicious page resolved to 127.0.0.1 connects from loopback but sends its own Host, so the peer-address check alone would hand it the owner token |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 

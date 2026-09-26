@@ -278,6 +278,8 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 
 Loopback means `request.client.host` is `127.0.0.1` or `::1`, nothing else. `X-Forwarded-For` and other proxy headers are never trusted; uvicorn runs with `--no-proxy-headers` so it does not rewrite the client address. Missing or wrong token -> `401`; non-loopback client -> `403`.
 
+Owner routes and token injection also require the `Host` header to be `localhost`, `127.0.0.1` or `[::1]`, with or without a port (case-insensitive); any other Host -> `403` on owner routes and no token in `index.html` (stops DNS rebinding). Requester-facing routes ignore Host.
+
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
 | GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: {llm, fast, embed} -> bool (resident in Ollama now), db: bool, vault_dir}` |

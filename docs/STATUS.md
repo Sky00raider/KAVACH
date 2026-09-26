@@ -29,6 +29,8 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 - Owner token is lazy: `keys/owner_token` created on the owner API's first use, never on import
 - 7. `frontend/` shell: Vite 8 + React 19 + TS + Tailwind v4 + shadcn/ui (button card badge dialog table tabs sonner input textarea scroll-area separator tooltip; `sonner` replaces deprecated `toast`), bundled Inter/JetBrains Mono + lucide, dark theme. `src/shell/`: layout, sidebar, §14 routes (owner and requester routes never mount together), dev-only owner/requester switch, owner health pill (`/api/health`), requester owner-connection status (`/r/identity` + no-cors probe). `src/api/`: `client.ts` (every §9/§12 route, `X-Owner-Token`, `ApiError`, `chatStream` for §10), `sse.ts`, `poll.ts` (`usePoll`, §14 intervals), fixture mode (lazy, absent from normal builds), generated `types.ts`/`requester-types.ts`. Dev: proxy `/api`->8000, `/r`->9000, `kavach-dev-boot` plugin injects the token only for loopback bind + loopback client + loopback Host (`--host` refuses). Empty pages in `pages/brain/` and `pages/trust/`. Vitest (31 tests); verified live: built UI via :8000 (token injected) and :9000 (requester), dev proxy, chat stream, `--host` refusal
 
+- `api.py`: owner routes and token injection also require a loopback `Host` header (DNS rebinding); tests for `Host: evil` on `GET /` (no token) and every owner route (`403`)
+
 **Next**
 - Scaffold complete. CONTRACT owner: review CONTRACT change proposals from BRAIN/TRUST
 
@@ -85,6 +87,8 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 9. `gate_mcp.py` (streamable HTTP -> `/api/ask`) + `requester/agent_client.py`
 10. `tools_mcp.py` + `agent/executor.py`
 11. `scripts/run_eval.py` and `scripts/reset_demo.py`
+12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe; CONTRACT §12 change via CONTRACT owner
+13. (low priority) Document the §10 stream in OpenAPI (`responses=` on `/api/chat/stream` with the `ChatEvent` models) so `gen:types` covers it; then drop the derived stream types in `client.ts`
 
 **Blocked**
 - (none)

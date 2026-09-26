@@ -65,7 +65,7 @@ def test_owner_api_creates_token_on_first_request(no_token, fresh_db, monkeypatc
     from kavach import api
 
     monkeypatch.setattr(config, "FRONTEND_DIST", no_token.parent.parent / "dist")
-    client = TestClient(api.app, client=("127.0.0.1", 1))
+    client = TestClient(api.app, client=("127.0.0.1", 1), base_url="http://127.0.0.1:8000")
     assert not no_token.exists()
     html = client.get("/").text
     token = no_token.read_text(encoding="utf-8")

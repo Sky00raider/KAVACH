@@ -65,6 +65,7 @@ from kavach.models import (
 from kavach.trust import audit, consent, pairing, wallet
 
 LOOPBACK = frozenset({"127.0.0.1", "::1"})
+LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
 VAULT_SUBDIRS = {".pdf": "pdfs", ".md": "notes", ".txt": "chats"}
 _UPLOAD_TMP = ".uploads"  # inside VAULT_DIR but outside the watched subdirs
 _OUTBOX_KINDS = {".eml": "eml", ".ics": "ics", ".pdf": "pdf"}
@@ -84,8 +85,28 @@ def is_loopback(request: Request) -> bool:
     return request.client is not None and request.client.host in LOOPBACK
 
 
+def is_loopback_host(request: Request) -> bool:
+    """The Host header names loopback, with or without a port. Stops DNS rebinding: a page on
+    evil.example resolved to 127.0.0.1 still sends Host: evil.example."""
+    host = request.headers.get("host", "").strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        name, rest = (host[: end + 1], host[end + 1 :]) if end != -1 else ("", "")
+    else:
+        name, colon, port = host.partition(":")
+        rest = colon + port
+    if rest and not (rest.startswith(":") and rest[1:].isdigit()):
+        return False
+    return name in LOOPBACK_HOSTNAMES
+
+
+def is_owner_client(request: Request) -> bool:
+    """Loopback peer address AND loopback Host header: required for owner routes and token injection."""
+    return is_loopback(request) and is_loopback_host(request)
+
+
 def require_owner(request: Request, x_owner_token: str | None = Header(default=None)) -> None:
-    if not is_loopback(request):
+    if not is_owner_client(request):
         raise HTTPException(403, "owner routes are loopback only")
     if x_owner_token is None or not secrets.compare_digest(x_owner_token.encode(), config.OWNER_TOKEN.encode()):
         raise HTTPException(401, "missing or wrong X-Owner-Token")
@@ -405,11 +426,12 @@ app.mount("/assets", StaticFiles(directory=config.FRONTEND_DIST / "assets", chec
 
 
 def index_html(request: Request) -> HTMLResponse:
-    """index.html with window.__KAVACH__ injected; the owner token only goes to loopback clients."""
+    """index.html with window.__KAVACH__ injected; the owner token only goes to loopback clients
+    that also sent a loopback Host header."""
     index = config.FRONTEND_DIST / "index.html"
     page = index.read_text(encoding="utf-8") if index.is_file() else _PLACEHOLDER
     boot: dict[str, str] = {"mode": "owner"}
-    if is_loopback(request):
+    if is_owner_client(request):
         boot["token"] = config.OWNER_TOKEN
     boot_json = json.dumps(boot).replace("</", "<\\/")
     script = f"<script>window.__KAVACH__={boot_json}</script>"
