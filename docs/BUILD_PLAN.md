@@ -79,6 +79,13 @@ Per numeric field keep `[lo, hi)` implied by all answers to everyone. YES to `>=
 ### 4.9 Audit (TRUST)
 Hash chain per CONTRACT §8. `verify_chain()` walks the log and returns the first broken `seq`.
 
+### 4.10 Question parsing (BRAIN)
+- `parse_question` normalises amounts **in code, before the LLM sees the question**. Every amount becomes a plain integer of rupees in the text passed to the model: `₹`, `Rs`, `Rs.`, `INR` dropped; commas dropped, Indian grouping included (`1,20,000`); `k` = ×1,000; `lakh` / `lac` / `L` = ×1,00,000 (`1.2 lakh` -> `120000`); `crore` / `cr` = ×1,00,00,000; `/month`, `per month`, `pm`, `a month` stripped. Examples: `₹50k` -> `50000`, `50,000/month` -> `50000`, `1.2 lakh` -> `120000`.
+- Percentages the same way (`75 %`, `75 percent` -> `75`).
+- Unit tests in `tests/test_parse_question.py` cover every form above, plus text with no amount (unchanged) and ambiguous input (e.g. `50-60k`, left unchanged).
+- After the LLM: numeric claims (`income`, `percentage`, `age`) must carry an `int` value, else `unsupported`. `issuer_claim` is set in code from the §5.1 table, never by the model.
+- Reason: qwen3:4b parsed "50k" as the string `"50k"` 3/3 in the benchmark (DECISIONS.md, Appendix A); doing it in code removes that failure for any model.
+
 ## 5. Demo vault (DATA writes content, TRUST generates signed parts)
 
 | File | Source | Purpose |
@@ -136,7 +143,8 @@ You own the BRAIN track. Replace stubs with real code, in this order, tests for 
 6. entities.py + graph-neighbour retrieval in chat
 7. extract.py with grounding, memory.py with supersession + candidates + teach;
    "Remember this?" chips on Ask
-8. parse_question.py + decide.py (pure code rules, CONTRACT §5.4)
+8. parse_question.py with amount normalisation in code before the LLM (§4.10: ₹, commas, "50k",
+   "1.2 lakh", "50,000/month" -> integers; unit tests) + decide.py (pure code rules, CONTRACT §5.4)
 9. agent/planner.py
 10. pages/brain/Vault: documents with signature badges, entity list, graph (react-force-graph-2d),
     highlight entities_used from the last answer                             <- M3

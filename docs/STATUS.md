@@ -58,7 +58,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 5. `pages/brain/Ask`: streaming chat, citation popovers, live auto-ingest strip (M1)
 6. `entities.py` + graph-neighbour retrieval in chat
 7. `extract.py` with grounding, `memory.py` with supersession + candidates + teach; "Remember this?" chips
-8. `parse_question.py` + `decide.py` (pure code, CONTRACT §5.4)
+8. `parse_question.py` with amount normalisation in code before the LLM (BUILD_PLAN §4.10; unit tests) + `decide.py` (pure code, CONTRACT §5.4)
 9. `agent/planner.py`
 10. `pages/brain/Vault`: documents, signature badges, entities, graph, `entities_used` highlight (M3)
 11. WhatsApp ingestion; `pages/brain/Memory`: timeline, superseded values, "Teach KAVACH"
