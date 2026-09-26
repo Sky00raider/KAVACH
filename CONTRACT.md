@@ -88,7 +88,11 @@ kavach/                         repo root
 ```
 `source_type`: `issuer_doc` (issuer-signed PDF) | `extracted` (unsigned doc, note, chat) | `owner_stated` (taught or confirmed by owner). `confidence`: `high` | `low`.
 
-**Fields extracted:** `monthly_income`, `loan_default_12m`, `date_of_birth`, `percentage`, `result`, `board`, `rent_amount`, `agreement_end_date`, `id_expiry`, `emi_date`, `employer`, `landlord`.
+**Fields extracted** (`models.EXTRACTED_FIELDS`): `monthly_income`, `loan_default_12m`, `date_of_birth`, `percentage`, `result`, `board`, `rent_amount`, `agreement_end_date`, `id_expiry`, `emi_date`, `employer`, `landlord`.
+
+`field` rules: `issuer_doc` facts must use one of `EXTRACTED_FIELDS`. `extracted` and `owner_stated` facts may use any snake_case name (`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`), e.g. `gym_membership_fee`. Only the fields in `DISCLOSABLE_FIELDS` (§5.1) can ever feed a disclosure. `MemoryCandidate.field` follows the same snake_case rule.
+
+**FactVersion** (`GET /api/memory/timeline`): a Fact plus `created_at` (UTC ISO) and `current` (bool: `valid_to` and `superseded_by` both null).
 
 ## 5. Disclosure model
 
@@ -103,6 +107,10 @@ kavach/                         repo root
 | board | `board` (value disclosed) | n/a |
 
 Never disclosable: name, DOB, account numbers, address, exact amounts, document text.
+
+`models.DISCLOSABLE_FIELDS` maps each claim to the fact field it is decided from: `income -> monthly_income`, `loan_default_12m -> loan_default_12m`, `age -> date_of_birth`, `percentage -> percentage`, `result -> result`, `board -> board`. `parse_question` returns `unsupported` for anything else; `decide` refuses any claim not in it.
+
+`GET /api/claims` returns `{"claims":[{"claim":"income","issuer_provable":["income_ge_25000", ...],"favourable":"YES"|"NO"|null}]}`: names only, never values.
 
 ### 5.2 Claim (parser output)
 ```json
@@ -129,6 +137,13 @@ else grounded issuer_doc fact exists                          -> ledger.check();
 favourable result   -> proposal to owner: Approve / Deny
 unfavourable result -> proposal to owner: Answer / Decline (Decline -> DECLINED)
 ```
+
+### 5.5 Proposal (`decide.decide()` output)
+```json
+{"answer_type":"ISSUER_PROOF","claim":{"claim":"income","op":"ge","value":50000,"issuer_claim":"income_ge_50000"},
+ "result":true,"favourable":true,"actions":["approve","deny"],"reason":"Unused mock_bank income_proof copy covers income_ge_50000"}
+```
+`result`: bool, or the string value for `board`; null for `REFUSED` / `CANNOT_CONFIRM`. `favourable`: null when not applicable. `actions`: `["approve","deny"]` if favourable, `["answer","decline"]` if not, `[]` for automatic outcomes. `reason`: short owner-facing text, never a raw fact value.
 
 ## 6. Credentials, presentations, attestations
 
@@ -161,10 +176,10 @@ Signed with the per-requester pairwise owner key created at pairing.
 ### 6.4 Verifier checks (`requester/verifier.py`)
 Presentation: (1) `issuer_sig` valid under `trusted_issuers.json[iss]`; (2) each disclosure hashes to a digest; (3) `binding.sig` valid under `holder_pubkey`; (4) `nonce` and `aud` match the stored request; (5) not expired.
 Attestation: (1) `sig` valid under the pairwise key received at pairing; (2) nonce/aud match; (3) not expired; always labelled "Owner-attested".
-Output: `{"answer_type","claim","result","checks":[{"name","ok","detail"}],"all_ok"}`.
+Output (`VerifierOutput`): `{"answer_type","claim","result","checks":[{"name","ok","detail"}],"all_ok"}`. `claim` is a string: the disclosed issuer claim name for presentations (`"income_ge_50000"`), the attested claim as `"<claim> <op> <value>"` for attestations (`"income ge 60000"`), or `"unsupported"`. For `DECLINED` / `CANNOT_CONFIRM` / `REFUSED`, `checks` is `[]` and `all_ok` is false.
 
 ### 6.5 Signed PDFs
-Issuer signs sha256 of the PDF's normalised text (NFKC, collapsed whitespace). Stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered).
+Issuer signs sha256 of the PDF's normalised text (NFKC, collapsed whitespace). Stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `SignatureResult {status, iss, detail}` where `status` is `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered), `iss` is the claimed issuer or null, `detail` a short reason or null.
 
 ## 7. Cross-module Python interfaces
 
@@ -201,6 +216,24 @@ audit.verify_chain() -> ChainStatus
 executor.execute(task_id: str) -> list[ToolResult]
 ```
 
+Shapes used above that are not defined elsewhere in this contract:
+
+| Type | Fields |
+|---|---|
+| `IngestResult` | `path, doc_id, source ("pdf"\|"note"\|"chat"), signature_status, chunks_added, entities_added, facts_added` |
+| `ScoredChunk` | `chunk_id, doc_id, locator, text, score` |
+| `ChatTurn` | `role ("user"\|"assistant"), content` |
+| `ChatResult` | the §10 `final` data plus `entities_used: [entity_id]` |
+| `TeachResult` | `fact: Fact, superseded: [Fact]` |
+| `CredentialRef` | `cred_id, iss, credential_type, copy` (one unused copy) |
+| `LedgerCheck` | `allowed: bool, reason: str\|null` |
+| `ChainStatus` | `intact: bool, broken_at: seq\|null, entries: int` |
+| `Plan` | `instruction, calls: [ToolCall], warnings: [str]`; `ToolCall = {tool, args, preview}`, `args` typed per §11.2 |
+| `ToolResult` | `tool, ok: bool, output_path: str\|null, detail: str\|null` |
+| `Task` | `task_id, instruction, plan: Plan, status, result: [ToolResult]\|null, created_at, decided_at` |
+| `Document` | the `documents` row (§8) |
+| `Entity` | `entity_id, type, name, attrs: {str: str}` |
+
 ## 8. SQLite schema
 
 ```sql
@@ -231,7 +264,7 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 - `requesters.status`: `pending` | `paired` | `blocked`
 - `requests.status`: `pending_pairing` | `pending` | `done`; `channel`: `web` | `mcp`
 - `tasks.status`: `planned` | `approved` | `rejected` | `done` | `failed`
-- `audit_log.entry_hash = sha256(prev_hash + ts + event + (ref_id or "") + detail_json)`; genesis `prev_hash = "0"*64`
+- `audit_log.entry_hash = sha256(prev_hash + ts + event + (ref_id or "") + detail_json)` as lowercase hex, over the UTF-8 bytes of the concatenation; `detail_json = json.dumps(detail, sort_keys=True, separators=(",",":"), ensure_ascii=False)` (same encoding as `crypto.canonical`, as text); genesis `prev_hash = "0"*64`
 - Audit `detail_json` never contains document text, chunk text or raw fact values.
 
 ## 9. Owner API (`kavach/api.py`, :8000)
@@ -240,7 +273,7 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/api/health` | | `{ollama, models, model_loaded, db, vault_dir}` |
+| GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: bool, db: bool, vault_dir}` |
 | POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` |
 | POST | `/api/ingest/sync` | | rescan -> `{ingested:[IngestResult]}` |
 | GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}` |
@@ -260,7 +293,7 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 | GET | `/api/queue` | | `{requesters:[Requester], requests:[RequestView], tasks:[Task], wallet:WalletStatus}` |
 | POST | `/api/requesters/{fp}/decision` | `{approve}` | `Requester` |
 | POST | `/api/requests/{id}/decision` | `{action:"approve"|"answer"|"decline"|"deny"}` | `RequestView` |
-| GET | `/api/wallet` | | `WalletStatus {by_type:[{credential_type, iss, unused, total}], low:[...]}` |
+| GET | `/api/wallet` | | `WalletStatus {by_type:[{credential_type, iss, unused, total}], low:[credential_type]}` (`low`: types with `unused < WALLET_LOW_COPIES`) |
 | GET | `/api/audit` | `?limit=200` | `{entries:[AuditEntry], chain_intact, broken_at}` |
 | GET | `/api/outbox` | | `[{name, kind, size, created_at}]` |
 
@@ -272,7 +305,9 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 | GET | `/api/ask/{id}` | headers `X-Requester-Fp`, `X-Ts`, `X-Sig` (sig over `"{id}|{ts}"`) | `{status, answer_type, payload, owner_pairwise_pubkey?}` |
 | GET | `/api/claims` | | disclosable claim names + which are issuer-provable (no values) |
 
-`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` must be within 120 s. Nonce reuse per requester is rejected. Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
+`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` (body) and `X-Ts` (header) are **Unix integer seconds** and must be within 120 s of the owner's clock; `X-Sig` signs the string `"{id}|{ts}"` with `ts` as a decimal integer. Every other timestamp in this contract is UTC ISO 8601 with `Z`. Nonce reuse per requester is rejected. Rejections return `401` (bad sig, stale ts), `409` (nonce reuse) or `403` (blocked requester) and are audited as `request_rejected` (§13). Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
+
+**RequestView** (items of `/api/queue` `requests`, and the decision response): `{request_id, requester_fp, requester_name, channel, question, claim: Claim|null, proposal: Proposal|null, status, answer_type|null, created_at, decided_at|null}`. `claim` and `proposal` are null while `pending_pairing`.
 
 ## 10. Chat stream protocol (`POST /api/chat/stream`)
 
@@ -295,6 +330,8 @@ event: error       data: {"message":"..."}
 | `list_disclosable_claims` | | same as `GET /api/claims` |
 | `ask` | `question, nonce, requester_pubkey, requester_name, requester_type, ts, sig` | `{request_id, status}` |
 | `get_answer` | `request_id, requester_fp, ts, sig` | same as `GET /api/ask/{id}` |
+
+`ts` in both tools is Unix integer seconds, as in §9.
 
 ### 11.2 Outbound `kavach-tools` (`tools_mcp.py`, stdio, only `executor.py` spawns it)
 Arg models live in `models.py` so the planner validates without spawning MCP.
@@ -323,7 +360,9 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 13. Audit events
 
-`ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`.
+`ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
+
+`request_rejected`: a request that failed before entering the pipeline. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked` (`models.RejectReason`).
 
 ## 14. Frontend contract
 
@@ -337,4 +376,4 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 15. Fixtures
 
-`fixtures/api/<name>.json` for: `health`, `documents`, `entities`, `facts`, `graph`, `chat`, `chat_stream` (`.jsonl` of events), `memory_timeline`, `queue`, `wallet`, `tasks`, `task_planned`, `audit`, `ingest_events`, `outbox`, `r_identity`, `r_requests`, `r_storage`. A pytest test validates every fixture against its Pydantic model, so fixtures can't drift from the contract.
+`fixtures/api/<name>.json` for: `health`, `documents`, `entities`, `facts`, `graph`, `chunk` (for citation popovers), `chat`, `chat_stream` (`.jsonl` of events), `memory_timeline`, `queue`, `wallet`, `tasks`, `task_planned`, `audit`, `ingest_events`, `outbox`, `r_identity`, `r_requests`, `r_storage`. A pytest test validates every fixture against its Pydantic model, so fixtures can't drift from the contract.

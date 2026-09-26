@@ -68,7 +68,7 @@ def test_trust_stubs_return_contract_types():
     assert present.build_attestation(Claim(claim="income", op="ge", value=60000), True, "fp", "n")["answer"] is True
     assert isinstance(ledger.check(Claim(claim="income", op="ge", value=60000), True), LedgerCheck)
     ask = AskIn(requester_pubkey="p", requester_name="R", requester_type="person", question="q", nonce="n",
-                ts="2026-09-26T12:00:00Z", sig="s")
+                ts=1790000000, sig="s")
     assert isinstance(consent.receive(ask, "web"), AskAck)
     assert isinstance(consent.decide_request("rq_1", "approve"), RequestView)
     assert isinstance(audit.log("request_received", "rq_1", {}), int)

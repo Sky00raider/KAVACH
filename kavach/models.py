@@ -1,14 +1,14 @@
 """Every cross-module and API shape from CONTRACT.md, as Pydantic v2 models.
 
 Import these; never redefine a shape locally. Section numbers refer to CONTRACT.md.
-Shapes CONTRACT leaves open are marked "(scaffold)" and listed in docs/DECISIONS.md.
+CONTRACT.md is the source of truth; change it first, then this file and fixtures/ in the same commit.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 
 class Model(BaseModel):
@@ -26,14 +26,17 @@ EdgeRel = Literal[
     "WORKS_ON", "PART_OF", "ABOUT", "RELATES_TO", "DECIDED", "LANDLORD_OF", "EMPLOYED_BY",
     "BANKS_WITH", "STUDIED_AT", "PAID", "DUE_ON", "PARTY_TO", "MENTIONED_IN",
 ]
-FactField = Literal[
+# The 12 fields extract.py pulls from documents (§4). issuer_doc facts must use one of these;
+# extracted and owner_stated facts may use any snake_case FieldName.
+EXTRACTED_FIELDS: tuple[str, ...] = (
     "monthly_income", "loan_default_12m", "date_of_birth", "percentage", "result", "board",
     "rent_amount", "agreement_end_date", "id_expiry", "emi_date", "employer", "landlord",
-]
+)
+FieldName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")]
 SourceType = Literal["issuer_doc", "extracted", "owner_stated"]
 Confidence = Literal["high", "low"]
 SignatureStatus = Literal["issuer_signed", "unsigned", "invalid"]
-DocSource = Literal["pdf", "note", "chat"]  # (scaffold)
+DocSource = Literal["pdf", "note", "chat"]
 
 OWNER_ENTITY_ID = "e_owner"
 
@@ -41,7 +44,7 @@ OWNER_ENTITY_ID = "e_owner"
 class Fact(Model):
     fact_id: str
     entity_id: str
-    field: FactField
+    field: FieldName
     value: str
     source_type: SourceType
     doc_id: str | None = None
@@ -51,9 +54,15 @@ class Fact(Model):
     superseded_by: str | None = None
     confidence: Confidence
 
+    @model_validator(mode="after")
+    def _issuer_fields(self) -> Fact:
+        if self.source_type == "issuer_doc" and self.field not in EXTRACTED_FIELDS:
+            raise ValueError(f"issuer_doc fact field must be one of EXTRACTED_FIELDS, got {self.field!r}")
+        return self
+
 
 class FactVersion(Fact):
-    """One entry in a field's timeline (scaffold): a Fact plus when it was stored and whether it is current."""
+    """One entry in a field's timeline: a Fact plus when it was stored and whether it is current."""
 
     created_at: str
     current: bool
@@ -123,7 +132,7 @@ class ScoredChunk(Chunk):
 
 
 class SignatureResult(Model):
-    """issuer_check.verify_pdf() result (scaffold: status plus issuer and a short reason)."""
+    """issuer_check.verify_pdf() result : status, issuer and a short reason (§6.5)."""
 
     status: SignatureStatus
     iss: str | None = None
@@ -198,7 +207,7 @@ class MemoryCandidate(Model):
     candidate_id: str
     statement: str
     kind: Literal["fact", "decision"]
-    field: FactField | None = None
+    field: FieldName | None = None
     value: str | None = None
     valid_from: str | None = None
     project_entity_id: str | None = None
@@ -217,7 +226,7 @@ class ChatFinal(Model):
 
 
 class ChatResult(ChatFinal):
-    """POST /api/chat. The final event plus the entities used (scaffold: merges §10 meta.entities_used)."""
+    """POST /api/chat. The final event plus the entities used (the §10 `final` data plus meta.entities_used)."""
 
     entities_used: list[str] = Field(default_factory=list)
 
@@ -298,6 +307,11 @@ class CandidateDecisionOut(Model):
 # ---------------------------------------------------------------------------
 
 ClaimName = Literal["income", "loan_default_12m", "age", "percentage", "result", "board", "unsupported"]
+# Disclosable claim -> the EXTRACTED_FIELDS entry it is decided from (§5.1). Used by parse_question and decide.
+DISCLOSABLE_FIELDS: dict[str, str] = {
+    "income": "monthly_income", "loan_default_12m": "loan_default_12m", "age": "date_of_birth",
+    "percentage": "percentage", "result": "result", "board": "board",
+}
 IssuerClaim = Literal[
     "income_ge_25000", "income_ge_50000", "income_ge_75000", "income_ge_100000",
     "loan_default_12m", "age_over_18", "age_over_21",
@@ -316,7 +330,7 @@ class Claim(Model):
 
 
 class Proposal(Model):
-    """decide.decide() output (scaffold). `actions` is empty for automatic outcomes."""
+    """decide.decide() output (§5.4). `actions` is empty for automatic outcomes."""
 
     answer_type: AnswerType
     claim: Claim
@@ -394,7 +408,7 @@ class Attestation(Model):
 
 
 class CredentialRef(Model):
-    """wallet.find_copy() result (scaffold): points at one unused copy."""
+    """wallet.find_copy() result: points at one unused copy."""
 
     model_config = ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
 
@@ -413,7 +427,7 @@ class WalletTypeStatus(Model):
 
 class WalletStatus(Model):
     by_type: list[WalletTypeStatus]
-    low: list[str] = Field(default_factory=list)  # credential_types with unused < WALLET_LOW_COPIES (scaffold)
+    low: list[str] = Field(default_factory=list)  # credential_types with unused < WALLET_LOW_COPIES
 
 
 # ---------------------------------------------------------------------------
@@ -426,14 +440,14 @@ Channel = Literal["web", "mcp"]
 
 
 class AskIn(Model):
-    """POST /api/ask. `sig` covers canonical JSON of all other fields. `ts` is UTC ISO 8601 (scaffold)."""
+    """POST /api/ask. `sig` covers canonical JSON of all other fields. `ts` is Unix seconds (int), within 120 s."""
 
     requester_pubkey: str
     requester_name: str
     requester_type: str
     question: str
     nonce: str
-    ts: str
+    ts: int
     sig: str
 
 
@@ -461,7 +475,7 @@ class Requester(Model):
 
 
 class RequestView(Model):
-    """Owner-side view of one request (scaffold)."""
+    """Owner-side view of one request."""
 
     request_id: str
     requester_fp: str
@@ -597,8 +611,10 @@ AuditEvent = Literal[
     "requester_blocked", "request_received", "request_auto_refused", "request_cannot_confirm",
     "request_refused_ledger", "disclosure_answered", "disclosure_declined", "disclosure_denied",
     "memory_taught", "memory_candidate_accepted", "task_planned", "task_approved", "task_rejected",
-    "task_executed", "task_failed", "wallet_low",
+    "task_executed", "task_failed", "wallet_low", "request_rejected",
 ]
+# detail.reason of a request_rejected entry
+RejectReason = Literal["bad_sig", "stale_ts", "nonce_reuse", "unknown_requester_blocked"]
 
 
 class AuditEntry(Model):
@@ -631,7 +647,7 @@ class OutboxItem(Model):
 
 
 class Health(Model):
-    """GET /api/health (scaffold: `models` maps role -> configured model name)."""
+    """GET /api/health `models` maps role (llm, fast, embed) -> configured model name."""
 
     ollama: bool
     models: dict[str, str]
@@ -652,7 +668,7 @@ class VerifierCheck(Model):
 
 
 class VerifierOutput(Model):
-    """`claim` is the disclosed issuer claim name, or the attested claim rendered as text (scaffold)."""
+    """`claim` is the disclosed issuer claim name, or the attested claim rendered as text (§6.4)."""
 
     answer_type: AnswerType
     claim: str
