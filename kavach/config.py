@@ -24,8 +24,8 @@ def _path(name: str, default: Path) -> Path:
 
 # Ollama
 OLLAMA_URL = _env("OLLAMA_URL", "http://127.0.0.1:11434")
-LLM_MODEL = _env("LLM_MODEL", "qwen3:8b")
-FAST_MODEL = _env("FAST_MODEL", "qwen3:4b")
+LLM_MODEL = _env("LLM_MODEL", "qwen2.5:7b")
+FAST_MODEL = _env("FAST_MODEL", "qwen2.5:3b")
 EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(_env("EMBED_DIM", "768"))
 OLLAMA_KEEP_ALIVE = _env("OLLAMA_KEEP_ALIVE", "24h")

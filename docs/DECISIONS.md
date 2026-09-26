@@ -1,6 +1,6 @@
 # DECISIONS.md
 
-One line per decision: date, decision, why. Newest at the bottom.
+One line per decision: date, decision, why. Newest at the bottom of the table. Supporting data goes in the appendices after it.
 
 | Date | Decision | Why |
 |---|---|---|
@@ -22,3 +22,16 @@ One line per decision: date, decision, why. Newest at the bottom.
 | 2026-09-26 | `AskIn.ts` and `X-Ts` are Unix integer seconds (supersedes ISO above); every other timestamp stays UTC ISO 8601 | Simple 120 s window check and header signing |
 | 2026-09-26 | Audit event `request_rejected` with `detail.reason` in `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked` | Refused requests must be audited (hard rule 6); §13 had no event for pre-pipeline rejections |
 | 2026-09-26 | `Fact.field` is any snake_case name for `extracted` / `owner_stated`; `issuer_doc` stays within `EXTRACTED_FIELDS`; `DISCLOSABLE_FIELDS` is the only path to disclosure | Teaching and notes need open-ended fields without widening what can be disclosed |
+| 2026-09-26 | Models: `LLM_MODEL=qwen2.5:7b`, `FAST_MODEL=qwen2.5:3b`, `EMBED_MODEL=nomic-embed-text` (benchmark in Appendix A) | Only family that parsed the test question correctly (3/3) and met the first-token and parse targets on the CPU-only owner laptop. qwen3 with thinking took ~50 s to first token; qwen3 with `think=false` was as fast but misparsed "50k" 3/3 |
+
+## Appendix A: model benchmark, 26 Sep 2026
+
+Owner laptop: Ryzen 7 7730U, 16 GB RAM, Ollama 0.34.4, CPU only. `scripts/bench_models.py --runs 3`, every model unloaded before each run, medians. Embedding model nomic-embed-text (dim 768) in every row.
+
+| LLM / FAST | Chat think | Chat first token (target < 5 s) | Chat full answer | Parse (target < 3 s) | Parse correct | Embed 100 chunks (target < 20 s) |
+|---|---|---|---|---|---|---|
+| qwen2.5:7b / qwen2.5:3b | n/a | 0.18 s | 6.9 s | 1.40 s | 3/3 | 21.6 s |
+| qwen3:8b / qwen3:4b | default (on) | 51.5 s | 57.1 s | 4.39 s | 0/3 | 21.6 s |
+| qwen3:8b / qwen3:4b | false | 0.19 s | 6.1 s | 2.51 s | 0/3 | 22.5 s |
+
+Structured parse always sent `think=false`. qwen3:4b answered `"value": "50k"` instead of `50000`. First-token times are flattered by Ollama's prompt cache (same short prompt each run). Embedding is ~1.5 s over target with every family; amount normalisation in code (BUILD_PLAN §4.10) removes the parse failure mode regardless of model.

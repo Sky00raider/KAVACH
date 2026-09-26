@@ -1,8 +1,8 @@
 {
   "ollama": true,
   "models": {
-    "llm": "qwen3:8b",
-    "fast": "qwen3:4b",
+    "llm": "qwen2.5:7b",
+    "fast": "qwen2.5:3b",
     "embed": "nomic-embed-text"
   },
   "model_loaded": true,

@@ -31,7 +31,9 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`
 
 **Blocked**
-- Model choice (owner picks; `config.py` defaults unchanged). Benchmark below.
+- (none)
+
+**Models chosen:** qwen2.5:7b / qwen2.5:3b / nomic-embed-text (DECISIONS.md, Appendix A).
 
 **Model benchmark** (26 Sep, owner laptop: Ryzen 7 7730U, 16 GB, Ollama 0.34.4, CPU only; `scripts/bench_models.py --runs 3`, all models unloaded before each run; medians; embed = nomic-embed-text, dim 768)
 
