@@ -43,7 +43,7 @@ def client(fresh_db, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "VAULT_DIR", tmp_path / "vault")
     monkeypatch.setattr(config, "OUTBOX_DIR", tmp_path / "outbox")
     monkeypatch.setattr(config, "FRONTEND_DIST", tmp_path / "dist")
-    monkeypatch.setattr(api, "_ollama_status", lambda: (False, False))
+    monkeypatch.setattr(api, "_ollama_status", lambda: (False, set()))
     return TestClient(api.app, client=("127.0.0.1", 50000))
 
 
@@ -108,11 +108,18 @@ def test_read_routes_validate(client):
 
 def test_health_reports_config_models_and_unreachable_ollama(fresh_db, monkeypatch):
     monkeypatch.setattr(config, "OLLAMA_URL", "http://127.0.0.1:9")
-    assert api._ollama_status() == (False, False)
+    assert api._ollama_status() == (False, set())
     r = TestClient(api.app, client=("127.0.0.1", 1)).get("/api/health", headers=TOKEN)
     h = Health.model_validate(r.json())
     assert h.models == {"llm": config.LLM_MODEL, "fast": config.FAST_MODEL, "embed": config.EMBED_MODEL}
-    assert h.db and not h.ollama
+    assert h.db and not h.ollama and h.model_loaded == {"llm": False, "fast": False, "embed": False}
+
+
+def test_health_model_loaded_per_role(client, monkeypatch):
+    monkeypatch.setattr(api, "_ollama_status", lambda: (True, {api._full_name(config.LLM_MODEL),
+                                                               api._full_name(config.EMBED_MODEL)}))
+    h = Health.model_validate(client.get("/api/health", headers=TOKEN).json())
+    assert h.model_loaded == {"llm": True, "fast": False, "embed": True}
 
 
 def test_db_backed_routes_read_rows(client):
@@ -349,3 +356,13 @@ def test_static_files_and_unknown_api_paths(client):
     assert client.get("/favicon.svg").text == "<svg/>"
     assert client.get("/api/nope").status_code == 404
     assert "npm run build" in client.get("/%2e%2e/%2e%2e/etc/passwd").text
+
+
+def test_facts_default_to_current(client):
+    base = {"entity_id": "e_owner", "field": "monthly_income", "source_type": "extracted", "confidence": "high",
+            "created_at": "2026-09-26T10:00:00Z"}
+    db.insert("facts", base | {"fact_id": "f_old", "value": "62000", "superseded_by": "f_new"})
+    db.insert("facts", base | {"fact_id": "f_new", "value": "70000"})
+    assert [f["fact_id"] for f in client.get("/api/facts", headers=TOKEN).json()] == ["f_new"]
+    every = client.get("/api/facts?current=false", headers=TOKEN).json()
+    assert sorted(f["fact_id"] for f in every) == ["f_new", "f_old"]

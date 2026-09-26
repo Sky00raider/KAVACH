@@ -163,13 +163,15 @@ You own the TRUST track. Replace stubs with real code, in this order, tests for 
 4. pages/trust/Verify (requester mode): ask box, request list, five checks animating to ticks or
    crosses, "Owner-attested" label, storage panel            <- M1: five checks pass on laptop 2
 5. pairing.py, consent.py, audit.py, all remaining api.py routes
-6. pages/trust/Queue: pairing cards, disclosure proposals (claim, proposed answer, trust level,
+6. malformed /api/ask* requests (FastAPI validation errors: bad body, missing X-* headers) audited as
+   request_rejected, reason=malformed, detail = {route, client_ip, error_type} only, never the body; still 422
+7. pages/trust/Queue: pairing cards, disclosure proposals (claim, proposed answer, trust level,
    favourable or not, Approve/Answer/Decline/Deny), planned tasks with previews, wallet warning;
    pages/trust/Audit: table + "Chain intact" badge                            <- M2
-7. ledger.py
-8. gate_mcp.py (streamable HTTP, forwards to /api/ask) + requester/agent_client.py
-9. tools_mcp.py + agent/executor.py
-10. scripts/run_eval.py and scripts/reset_demo.py
+8. ledger.py
+9. gate_mcp.py (streamable HTTP, forwards to /api/ask) + requester/agent_client.py
+10. tools_mcp.py + agent/executor.py
+11. scripts/run_eval.py and scripts/reset_demo.py
 Nothing requester-reachable may return document text, chunks or raw facts. Audit every decision.
 UI: build against fixtures first, then live API; regenerate types with npm run gen:types after API changes.
 ```

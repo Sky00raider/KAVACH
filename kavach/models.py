@@ -616,6 +616,7 @@ AuditEvent = Literal[
 # detail.reason of a request_rejected entry. unknown_request and wrong_requester both return the same 404.
 RejectReason = Literal[
     "bad_sig", "stale_ts", "nonce_reuse", "unknown_requester_blocked", "unknown_request", "wrong_requester",
+    "malformed",
 ]
 
 
@@ -660,11 +661,11 @@ class OutboxItem(Model):
 
 
 class Health(Model):
-    """GET /api/health `models` maps role (llm, fast, embed) -> configured model name."""
+    """GET /api/health. `models` maps role (llm, fast, embed) -> configured name; `model_loaded` -> resident now."""
 
     ollama: bool
     models: dict[str, str]
-    model_loaded: bool
+    model_loaded: dict[str, bool]
     db: bool
     vault_dir: str
 

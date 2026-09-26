@@ -28,6 +28,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-26 | Loopback = `request.client.host` in `127.0.0.1`/`::1` only; proxy headers never trusted; owner API runs with `uvicorn --no-proxy-headers`; `X-Channel: mcp` honoured only from loopback, else `web` | Owner routes and the MCP channel label must not be spoofable from the LAN |
 | 2026-09-26 | `/api/ingest/events` is derived from `ingested` audit entries (no extra table); `ingested` detail is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}`, vault-relative path, counts only | One source of truth for the live ingest strip; audit never holds text or values |
 | 2026-09-26 | `/api/ingest` routes `.pdf`/`.md`/`.txt` to `pdfs/`/`notes/`/`chats/`, else `415`; basename only (`400` on empty, `..`, absolute or drive paths); never overwrites (same bytes `200`, different `409`) | Uploads cannot escape `vault/` or silently replace an ingested document |
+| 2026-09-26 | Malformed `/api/ask*` requests are audited as `request_rejected`, `reason=malformed`, detail `{reason, route, client_ip, error_type}` only (TRUST step 6); `/api/queue` = all requesters, not-done requests, planned tasks; `/api/facts` defaults to `current=true`; `Health.model_loaded` is a per-role map | Hard rule 6 covers validation failures too without logging attacker-controlled bodies; queue and facts defaults match what the pages show; one bool could not say which model is cold |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 

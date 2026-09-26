@@ -280,13 +280,13 @@ Loopback means `request.client.host` is `127.0.0.1` or `::1`, nothing else. `X-F
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: bool, db: bool, vault_dir}` |
+| GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: {llm, fast, embed} -> bool (resident in Ollama now), db: bool, vault_dir}` |
 | POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` (vault-relative). `.pdf` -> `pdfs/`, `.md` -> `notes/`, `.txt` -> `chats/`, else `415`. Filename is reduced to its basename; empty, `.`/`..`, absolute or drive paths -> `400` (the multipart parser may already reduce a Windows full path to its basename, which is then stored as such). An existing file is never overwritten: same bytes -> `200` with its path, different bytes -> `409` |
 | POST | `/api/ingest/sync` | | rescan -> `{ingested:[IngestResult]}` |
 | GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
 | GET | `/api/documents` | | `[Document]` |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
-| GET | `/api/facts` | `?field=&current=true` | `[Fact]` |
+| GET | `/api/facts` | `?field=&current=true` (`current` defaults to `true`; `false` includes superseded facts) | `[Fact]` |
 | GET | `/api/graph` | `?entity_id=&hops=1` | `{nodes:[{id,type,name}], edges:[{id,src,dst,rel,valid_from,valid_to,source_chunk_id}]}` |
 | GET | `/api/chunks/{chunk_id}` | | `{chunk_id, doc_id, locator, text}` (owner only, for citation popovers) |
 | POST | `/api/chat` | `{question, history}` | `ChatResult` |
@@ -297,7 +297,7 @@ Loopback means `request.client.host` is `127.0.0.1` or `::1`, nothing else. `X-F
 | POST | `/api/tasks` | `{instruction}` | `Task` (status `planned`, plan with previews) |
 | POST | `/api/tasks/{id}/decision` | `{approve}` | `Task` (executed if approved) |
 | GET | `/api/tasks` | | `[Task]` |
-| GET | `/api/queue` | | `{requesters:[Requester], requests:[RequestView], tasks:[Task], wallet:WalletStatus}` |
+| GET | `/api/queue` | | `{requesters:[Requester], requests:[RequestView], tasks:[Task], wallet:WalletStatus}`: all requesters (any status), requests whose status is not `done`, tasks with status `planned`; each list newest first |
 | POST | `/api/requesters/{fp}/decision` | `{approve}` | `Requester` |
 | POST | `/api/requests/{id}/decision` | `{action:"approve"|"answer"|"decline"|"deny"}` | `RequestView` |
 | GET | `/api/wallet` | | `WalletStatus {by_type:[{credential_type, iss, unused, total}], low:[credential_type]}` (`low`: types with `unused < WALLET_LOW_COPIES`) |
@@ -312,7 +312,7 @@ Loopback means `request.client.host` is `127.0.0.1` or `::1`, nothing else. `X-F
 | GET | `/api/ask/{id}` | headers `X-Requester-Fp`, `X-Ts`, `X-Sig` (sig over `"{id}|{ts}"`) | `{status, answer_type, payload, owner_pairwise_pubkey?}` |
 | GET | `/api/claims` | | `decide.claims()`: disclosable claim names + which are issuer-provable, never values (hard rule 5) |
 
-`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` (body) and `X-Ts` (header) are **Unix integer seconds** and must be within 120 s of the owner's clock; `X-Sig` signs the string `"{id}|{ts}"` with `ts` as a decimal integer. Every other timestamp in this contract is UTC ISO 8601 with `Z`. Nonce reuse per requester is rejected. Rejections return `401` (bad sig, stale ts), `409` (nonce reuse), `403` (blocked requester) or `404` (unknown request id, or a poll whose `X-Requester-Fp` is not the request's requester; same response for both so ids cannot be probed) and are audited as `request_rejected` (§13). Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
+`sig` on `/api/ask` covers canonical JSON of all other fields. `ts` (body) and `X-Ts` (header) are **Unix integer seconds** and must be within 120 s of the owner's clock; `X-Sig` signs the string `"{id}|{ts}"` with `ts` as a decimal integer. Every other timestamp in this contract is UTC ISO 8601 with `Z`. Nonce reuse per requester is rejected. Rejections return `401` (bad sig, stale ts), `409` (nonce reuse), `403` (blocked requester) or `404` (unknown request id, or a poll whose `X-Requester-Fp` is not the request's requester; same response for both so ids cannot be probed) or `422` (malformed) and are audited as `request_rejected` (§13). Unknown key creates a `pending` requester and the request waits as `pending_pairing`. `owner_pairwise_pubkey` is returned on the first poll after pairing.
 
 `X-Channel: mcp` on `/api/ask*` is honoured only from a loopback client (the gate); from any other address the channel is forced to `web`.
 
@@ -371,7 +371,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 `ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
 
-`request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester` (`models.RejectReason`).
+`request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester`, `malformed` (`models.RejectReason`). `malformed` is a request to `/api/ask*` that fails validation (bad body, missing or non-integer `X-*` headers); it still returns `422`, and its `detail` is exactly `{reason, route, client_ip, error_type}`, never the body.
 
 `ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}` with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 

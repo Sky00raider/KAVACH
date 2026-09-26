@@ -5,7 +5,11 @@
     "fast": "qwen2.5:3b",
     "embed": "nomic-embed-text"
   },
-  "model_loaded": true,
+  "model_loaded": {
+    "llm": true,
+    "fast": false,
+    "embed": true
+  },
   "db": true,
   "vault_dir": "vault"
 }

@@ -72,7 +72,7 @@ _OUTBOX_KINDS = {".eml": "eml", ".ics": "ics", ".pdf": "pdf"}
 _REJECT_STATUS: dict[str, tuple[int, str]] = {
     "bad_sig": (401, "bad_sig"), "stale_ts": (401, "stale_ts"), "nonce_reuse": (409, "nonce_reuse"),
     "unknown_requester_blocked": (403, "blocked"), "unknown_request": (404, "not_found"),
-    "wrong_requester": (404, "not_found"),
+    "wrong_requester": (404, "not_found"), "malformed": (422, "malformed"),
 }
 
 
@@ -124,23 +124,23 @@ def _full_name(model: str) -> str:
     return model if ":" in model else f"{model}:latest"
 
 
-def _ollama_status() -> tuple[bool, bool]:
-    """(reachable, LLM_MODEL loaded). Short timeout so the health poll never hangs."""
+def _ollama_status() -> tuple[bool, set[str]]:
+    """(reachable, names of resident models). Short timeout so the health poll never hangs."""
     try:
         with httpx.Client(base_url=config.OLLAMA_URL, timeout=1.0) as client:
             client.get("/api/tags").raise_for_status()
             ps = client.get("/api/ps").json()
     except (httpx.HTTPError, ValueError):
-        return False, False
-    loaded = {_full_name(m.get("name") or m.get("model") or "") for m in ps.get("models", [])}
-    return True, _full_name(config.LLM_MODEL) in loaded
+        return False, set()
+    return True, {_full_name(m.get("name") or m.get("model") or "") for m in ps.get("models", [])}
 
 
 @owner.get("/health")
 def health() -> Health:
     reachable, loaded = _ollama_status()
-    return Health(ollama=reachable, model_loaded=loaded, db=db.ping(), vault_dir=str(config.VAULT_DIR),
-                  models={"llm": config.LLM_MODEL, "fast": config.FAST_MODEL, "embed": config.EMBED_MODEL})
+    models = {"llm": config.LLM_MODEL, "fast": config.FAST_MODEL, "embed": config.EMBED_MODEL}
+    return Health(ollama=reachable, models=models, db=db.ping(), vault_dir=str(config.VAULT_DIR),
+                  model_loaded={role: _full_name(name) in loaded for role, name in models.items()})
 
 
 def safe_upload_name(raw: str | None) -> str:
@@ -219,7 +219,7 @@ def entities(type: EntityType | None = None) -> list[Entity]:
 
 
 @owner.get("/facts")
-def facts(field: str | None = None, current: bool = False) -> list[Fact]:
+def facts(field: str | None = None, current: bool = True) -> list[Fact]:
     return db.list_facts(field, current)
 
 

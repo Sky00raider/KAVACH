@@ -77,11 +77,12 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 3. `requester/verifier.py` + `requester/app.py`, owner `/api/ask` path
 4. `pages/trust/Verify` (requester mode): five checks, "Owner-attested" label, storage panel (M1)
 5. `pairing.py`, `consent.py`, `audit.py`, remaining `api.py` routes
-6. `pages/trust/Queue` and `pages/trust/Audit` (M2)
-7. `ledger.py`
-8. `gate_mcp.py` (streamable HTTP -> `/api/ask`) + `requester/agent_client.py`
-9. `tools_mcp.py` + `agent/executor.py`
-10. `scripts/run_eval.py` and `scripts/reset_demo.py`
+6. Malformed `/api/ask*` (validation errors) audited as `request_rejected`, `reason=malformed`, detail `{route, client_ip, error_type}` only, never the body
+7. `pages/trust/Queue` and `pages/trust/Audit` (M2)
+8. `ledger.py`
+9. `gate_mcp.py` (streamable HTTP -> `/api/ask`) + `requester/agent_client.py`
+10. `tools_mcp.py` + `agent/executor.py`
+11. `scripts/run_eval.py` and `scripts/reset_demo.py`
 
 **Blocked**
 - Waiting on scaffold (M0)
