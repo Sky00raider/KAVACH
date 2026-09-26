@@ -27,9 +27,10 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 - 4. `api.py`: every §9 route wired to stubs; owner auth (token + `request.client.host` loopback, no proxy headers, `--no-proxy-headers`); index.html token injection (loopback only, placeholder until `frontend/dist` exists); §10 SSE stream with `error` on exceptions; safe non-overwriting uploads; `/api/ingest/events` from `ingested` audit entries; `X-Channel: mcp` only from loopback. CONTRACT: `consent.poll` (+ fp match), `consent.RequestRejected`, `pairing.decide`, `decide.claims`, reject reasons `unknown_request`/`wrong_requester`/`malformed`, `ingested` detail shape, queue contents, facts `current=true` default, per-role `model_loaded`. `tests/test_api.py`
 - 6. `requester/` (`app.py` §12 routes stubbed + requester-mode frontend, `verifier.py` stub that never passes a check, `agent_client.py` stub, `trusted_issuers.json`); `gate_mcp.py` (3 tools, streamable HTTP `:8001/mcp`) and `tools_mcp.py` (4 tools, stdio, args validated by models.py) with stub bodies; verified live over HTTP and stdio. `tests/test_requester.py`, `tests/test_mcp.py`
 - Owner token is lazy: `keys/owner_token` created on the owner API's first use, never on import
+- 7. `frontend/` shell: Vite 8 + React 19 + TS + Tailwind v4 + shadcn/ui (button card badge dialog table tabs sonner input textarea scroll-area separator tooltip; `sonner` replaces deprecated `toast`), bundled Inter/JetBrains Mono + lucide, dark theme. `src/shell/`: layout, sidebar, §14 routes (owner and requester routes never mount together), dev-only owner/requester switch, owner health pill (`/api/health`), requester owner-connection status (`/r/identity` + no-cors probe). `src/api/`: `client.ts` (every §9/§12 route, `X-Owner-Token`, `ApiError`, `chatStream` for §10), `sse.ts`, `poll.ts` (`usePoll`, §14 intervals), fixture mode (lazy, absent from normal builds), generated `types.ts`/`requester-types.ts`. Dev: proxy `/api`->8000, `/r`->9000, `kavach-dev-boot` plugin injects the token only for loopback bind + loopback client + loopback Host (`--host` refuses). Empty pages in `pages/brain/` and `pages/trust/`. Vitest (31 tests); verified live: built UI via :8000 (token injected) and :9000 (requester), dev proxy, chat stream, `--host` refusal
 
 **Next**
-7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`
+- Scaffold complete. CONTRACT owner: review CONTRACT change proposals from BRAIN/TRUST
 
 **Blocked**
 - (none)
@@ -65,7 +66,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 11. WhatsApp ingestion; `pages/brain/Memory`: timeline, superseded values, "Teach KAVACH"
 
 **Blocked**
-- Waiting on scaffold (M0)
+- (none)
 
 ## TRUST (§6.3)
 
@@ -86,7 +87,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 11. `scripts/run_eval.py` and `scripts/reset_demo.py`
 
 **Blocked**
-- Waiting on scaffold (M0)
+- (none)
 
 ## DATA (§6.4)
 

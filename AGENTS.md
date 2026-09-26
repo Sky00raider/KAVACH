@@ -47,8 +47,11 @@ pip install -r requirements.txt
 uvicorn kavach.api:app --host 0.0.0.0 --port 8000 --no-proxy-headers   # owner API + built UI
 python -m kavach.gate_mcp                             # inbound MCP gate on :8001
 uvicorn requester.app:app --host 0.0.0.0 --port 9000  # requester laptop
+cd frontend && npm install                            # once
 cd frontend && npm run dev                            # UI dev server :5173, proxies /api
-cd frontend && npm run gen:types                      # regenerate TS types from OpenAPI
+cd frontend && npm run gen:types                      # regenerate TS types from OpenAPI (needs :8000 and :9000 up)
+cd frontend && npm test                               # vitest: API client, SSE parser, dev boot
+cd frontend && npm run build                          # typecheck + build to frontend/dist
 pytest -m "not llm"                                   # fast tests
 pytest                                                # all tests, needs Ollama running
 python scripts/reset_demo.py                          # restore clean demo state
