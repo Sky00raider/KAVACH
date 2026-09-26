@@ -1,0 +1,69 @@
+[
+  {
+    "task_id": "t_6b5a4c3d2e",
+    "instruction": "Email my landlord the income proof I sent him and remind me a month before the agreement ends",
+    "plan": {
+      "instruction": "Email my landlord the income proof I sent him and remind me a month before the agreement ends",
+      "calls": [
+        {
+          "tool": "draft_email",
+          "args": {
+            "to": "ramesh.kumar@example.com",
+            "subject": "Income proof for renewal",
+            "body": "Dear Mr. Kumar,\n\nAttached is the verifiable income proof you asked for.\n\nRegards,\nAnanya",
+            "attachments": [
+              {
+                "type": "presentation",
+                "request_id": "rq_1f2e3d4c5b"
+              }
+            ]
+          },
+          "preview": "Email to Ramesh Kumar <ramesh.kumar@example.com>: \"Income proof for renewal\" + 1 proof"
+        },
+        {
+          "tool": "create_reminder",
+          "args": {
+            "title": "Rent agreement ends 31 Mar",
+            "date": "2027-03-01",
+            "notes": "Renew only if rent stays under ₹15k"
+          },
+          "preview": "Reminder on 1 Mar 2027: Rent agreement ends 31 Mar"
+        }
+      ],
+      "warnings": []
+    },
+    "status": "planned",
+    "result": null,
+    "created_at": "2026-09-26T12:05:00Z",
+    "decided_at": null
+  },
+  {
+    "task_id": "t_5a4b3c2d1e",
+    "instruction": "Save a note that I paid September rent",
+    "plan": {
+      "instruction": "Save a note that I paid September rent",
+      "calls": [
+        {
+          "tool": "save_note",
+          "args": {
+            "title": "September rent paid",
+            "markdown": "Paid September rent to [[Ramesh Kumar]] on 5 Sep."
+          },
+          "preview": "New note: vault/notes/september-rent-paid.md"
+        }
+      ],
+      "warnings": []
+    },
+    "status": "done",
+    "result": [
+      {
+        "tool": "save_note",
+        "ok": true,
+        "output_path": "vault/notes/september-rent-paid.md",
+        "detail": null
+      }
+    ],
+    "created_at": "2026-09-26T11:40:00Z",
+    "decided_at": "2026-09-26T11:41:00Z"
+  }
+]

@@ -1,0 +1,90 @@
+[
+  {
+    "doc_id": "d_03a1b2c3d4",
+    "path": "vault/pdfs/bank_statement_signed.pdf",
+    "source": "pdf",
+    "doc_type": "bank_statement",
+    "signature_status": "issuer_signed",
+    "iss": "mock_bank",
+    "text_hash": "cb9dd4540bc4484ec75a52a6819110a378da3863cb123c383ca86fece4e26f94",
+    "ingested_at": "2026-09-26T09:10:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_7e21a0c9b4",
+    "path": "vault/pdfs/rent_agreement.pdf",
+    "source": "pdf",
+    "doc_type": "rent_agreement",
+    "signature_status": "unsigned",
+    "iss": null,
+    "text_hash": "f0513dbaed1660d69c16a002a22631206e8aca7e497dc56e92c74526a7610467",
+    "ingested_at": "2026-09-26T09:11:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_5b6c7d8e9f",
+    "path": "vault/pdfs/marksheet_signed.pdf",
+    "source": "pdf",
+    "doc_type": "marksheet",
+    "signature_status": "issuer_signed",
+    "iss": "mock_board",
+    "text_hash": "ee11639bc183b8e9d9e81ef0dc6fabeb927a079d175e0a62df560f46e23b5fcb",
+    "ingested_at": "2026-09-26T09:12:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_1c2d3e4f5a",
+    "path": "vault/pdfs/id_card_signed.pdf",
+    "source": "pdf",
+    "doc_type": "id_card",
+    "signature_status": "issuer_signed",
+    "iss": "mock_govt",
+    "text_hash": "8dc50c2cff4a75cbd050d61b1fde038c93c02309d642133eaeac878d67b4f262",
+    "ingested_at": "2026-09-26T09:13:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_8f7e6d5c4b",
+    "path": "vault/pdfs/bank_statement_TAMPERED.pdf",
+    "source": "pdf",
+    "doc_type": "bank_statement",
+    "signature_status": "invalid",
+    "iss": "mock_bank",
+    "text_hash": "b045159a9167d29192b12326a9a0a4187cd767b65c2c9696002648d5ef5e06d8",
+    "ingested_at": "2026-09-26T09:14:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_9a8b7c6d5e",
+    "path": "vault/notes/flat-move-2026.md",
+    "source": "note",
+    "doc_type": "note",
+    "signature_status": "unsigned",
+    "iss": null,
+    "text_hash": "339f73e0e7b35bcd3e4e367bc5333dd10d02c0a8d7b08143f21c3d971e5d65a7",
+    "ingested_at": "2026-09-26T09:15:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_4f3e2d1c0b",
+    "path": "vault/notes/rent-renewal.md",
+    "source": "note",
+    "doc_type": "note",
+    "signature_status": "unsigned",
+    "iss": null,
+    "text_hash": "a4c50ffdd41e4d73cfdf5a6b6a0851c0d8e93423d89c78e2d10bc932a5df5576",
+    "ingested_at": "2026-09-26T09:16:00Z",
+    "removed_at": null
+  },
+  {
+    "doc_id": "d_2b3c4d5e6f",
+    "path": "vault/chats/landlord.txt",
+    "source": "chat",
+    "doc_type": "whatsapp",
+    "signature_status": "unsigned",
+    "iss": null,
+    "text_hash": "c7eb174ae57d0b7876a235c847d10dfd4c7d081a8e7efd22fa5f90cae6d4e34b",
+    "ingested_at": "2026-09-26T09:17:00Z",
+    "removed_at": null
+  }
+]

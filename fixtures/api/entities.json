@@ -1,0 +1,74 @@
+[
+  {
+    "entity_id": "e_owner",
+    "type": "PERSON",
+    "name": "Ananya Rao",
+    "attrs": {
+      "role": "owner"
+    }
+  },
+  {
+    "entity_id": "e_5c4b3a2d1e",
+    "type": "PERSON",
+    "name": "Ramesh Kumar",
+    "attrs": {
+      "email": "ramesh.kumar@example.com",
+      "phone": "+91 98450 12345"
+    }
+  },
+  {
+    "entity_id": "e_6d5c4b3a2f",
+    "type": "ORG",
+    "name": "Mock Bank",
+    "attrs": {}
+  },
+  {
+    "entity_id": "e_2f1e0d9c8b",
+    "type": "ORG",
+    "name": "State Board of Secondary Education",
+    "attrs": {}
+  },
+  {
+    "entity_id": "e_7a6b5c4d3e",
+    "type": "PROJECT",
+    "name": "Flat move 2026",
+    "attrs": {
+      "deadline": "2026-12-15"
+    }
+  },
+  {
+    "entity_id": "e_8b7a6c5d4f",
+    "type": "CONCEPT",
+    "name": "rent renewal",
+    "attrs": {}
+  },
+  {
+    "entity_id": "e_9c8b7a6d5e",
+    "type": "CONCEPT",
+    "name": "education loan",
+    "attrs": {}
+  },
+  {
+    "entity_id": "e_0d9c8b7a6f",
+    "type": "DECISION",
+    "name": "Renew only if rent stays under ₹15k",
+    "attrs": {
+      "date": "2026-09-12",
+      "quote": "Decided to renew only if rent stays under ₹15k"
+    }
+  },
+  {
+    "entity_id": "e_1e0d9c8b7a",
+    "type": "PLACE",
+    "name": "Flat 4B, Indiranagar",
+    "attrs": {}
+  },
+  {
+    "entity_id": "e_3a2f1e0d9c",
+    "type": "OBLIGATION",
+    "name": "Monthly rent",
+    "attrs": {
+      "due_day": "5"
+    }
+  }
+]

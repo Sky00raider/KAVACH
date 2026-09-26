@@ -1,0 +1,112 @@
+{
+  "entries": [
+    {
+      "seq": 9,
+      "ts": "2026-09-26T12:06:00Z",
+      "event": "request_auto_refused",
+      "ref_id": "rq_2a3b4c5d6e",
+      "detail": {
+        "requester_fp": "c3d4e5f60718293a",
+        "reason": "not disclosable"
+      },
+      "prev_hash": "6c4f0c01c712ad9045009b8843ac8b4649e046d02d52fdc721cc0a4e45597dc5",
+      "entry_hash": "cd045189ad53491604d901cc1d244c1c02cad2d31296a3691e3310b7d45c544c"
+    },
+    {
+      "seq": 8,
+      "ts": "2026-09-26T12:05:00Z",
+      "event": "task_planned",
+      "ref_id": "t_6b5a4c3d2e",
+      "detail": {
+        "tools": [
+          "draft_email",
+          "create_reminder"
+        ]
+      },
+      "prev_hash": "8272d2df9411dde08de87fb381a68e3a2b47e1fd3489d9b1961a3fdbf07351af",
+      "entry_hash": "6c4f0c01c712ad9045009b8843ac8b4649e046d02d52fdc721cc0a4e45597dc5"
+    },
+    {
+      "seq": 7,
+      "ts": "2026-09-26T12:04:00Z",
+      "event": "disclosure_answered",
+      "ref_id": "rq_1f2e3d4c5b",
+      "detail": {
+        "answer_type": "ISSUER_PROOF",
+        "issuer_claim": "income_ge_50000"
+      },
+      "prev_hash": "693736652d8247fb35526b92ce182c5f4d8e75004e332a97ab604c4101c8912a",
+      "entry_hash": "8272d2df9411dde08de87fb381a68e3a2b47e1fd3489d9b1961a3fdbf07351af"
+    },
+    {
+      "seq": 6,
+      "ts": "2026-09-26T12:03:00Z",
+      "event": "request_received",
+      "ref_id": "rq_1f2e3d4c5b",
+      "detail": {
+        "requester_fp": "a1b2c3d4e5f60718",
+        "claim": "income"
+      },
+      "prev_hash": "46501009fe4897d19df53267419841d8a13547b2b378dbe03ea7a47a88c12181",
+      "entry_hash": "693736652d8247fb35526b92ce182c5f4d8e75004e332a97ab604c4101c8912a"
+    },
+    {
+      "seq": 5,
+      "ts": "2026-09-26T12:00:00Z",
+      "event": "requester_paired",
+      "ref_id": "a1b2c3d4e5f60718",
+      "detail": {},
+      "prev_hash": "8d9ab82e84ea85df2b610992c8441b8675f57b21cb3fab13fb4aea3d11cc7363",
+      "entry_hash": "46501009fe4897d19df53267419841d8a13547b2b378dbe03ea7a47a88c12181"
+    },
+    {
+      "seq": 4,
+      "ts": "2026-09-26T11:59:00Z",
+      "event": "requester_pending",
+      "ref_id": "a1b2c3d4e5f60718",
+      "detail": {
+        "name": "Ramesh Kumar",
+        "channel": "web"
+      },
+      "prev_hash": "02118d61e511d616804ea9a1b3dc9f3f06e2aec656f4688ad8f54c7f1fd0eec1",
+      "entry_hash": "8d9ab82e84ea85df2b610992c8441b8675f57b21cb3fab13fb4aea3d11cc7363"
+    },
+    {
+      "seq": 3,
+      "ts": "2026-09-26T11:30:00Z",
+      "event": "memory_taught",
+      "ref_id": "f_9f8e7d6c5b",
+      "detail": {
+        "field": "monthly_income"
+      },
+      "prev_hash": "38357b0300222a52dc797efce090c44db38aec5bbccb2bbdec6838702df4e3ee",
+      "entry_hash": "02118d61e511d616804ea9a1b3dc9f3f06e2aec656f4688ad8f54c7f1fd0eec1"
+    },
+    {
+      "seq": 2,
+      "ts": "2026-09-26T09:14:00Z",
+      "event": "document_signature_failed",
+      "ref_id": "d_8f7e6d5c4b",
+      "detail": {
+        "path": "vault/pdfs/bank_statement_TAMPERED.pdf",
+        "iss": "mock_bank"
+      },
+      "prev_hash": "8198183901977fc714d21ae5ff93fe5b76241801896e59a9f47b7b9bcc18405c",
+      "entry_hash": "38357b0300222a52dc797efce090c44db38aec5bbccb2bbdec6838702df4e3ee"
+    },
+    {
+      "seq": 1,
+      "ts": "2026-09-26T09:10:00Z",
+      "event": "ingested",
+      "ref_id": "d_03a1b2c3d4",
+      "detail": {
+        "path": "vault/pdfs/bank_statement_signed.pdf",
+        "signature_status": "issuer_signed"
+      },
+      "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "entry_hash": "8198183901977fc714d21ae5ff93fe5b76241801896e59a9f47b7b9bcc18405c"
+    }
+  ],
+  "chain_intact": true,
+  "broken_at": null
+}

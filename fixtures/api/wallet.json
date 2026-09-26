@@ -1,0 +1,25 @@
+{
+  "by_type": [
+    {
+      "credential_type": "income_proof",
+      "iss": "mock_bank",
+      "unused": 17,
+      "total": 20
+    },
+    {
+      "credential_type": "marksheet",
+      "iss": "mock_board",
+      "unused": 20,
+      "total": 20
+    },
+    {
+      "credential_type": "id_card",
+      "iss": "mock_govt",
+      "unused": 2,
+      "total": 20
+    }
+  ],
+  "low": [
+    "id_card"
+  ]
+}

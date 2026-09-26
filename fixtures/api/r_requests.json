@@ -1,0 +1,94 @@
+[
+  {
+    "local_id": "l_01",
+    "request_id": "rq_1f2e3d4c5b",
+    "question": "Does the tenant earn at least ₹50,000 a month?",
+    "status": "done",
+    "via": "web",
+    "result": {
+      "answer_type": "ISSUER_PROOF",
+      "claim": "income_ge_50000",
+      "result": true,
+      "checks": [
+        {
+          "name": "Issuer signature",
+          "ok": true,
+          "detail": "mock_bank key from local trust list"
+        },
+        {
+          "name": "Disclosure digest",
+          "ok": true,
+          "detail": "income_ge_50000 matches a signed digest"
+        },
+        {
+          "name": "Holder binding",
+          "ok": true,
+          "detail": "signed by the credential's one-time holder key"
+        },
+        {
+          "name": "Nonce and audience",
+          "ok": true,
+          "detail": "matches this request"
+        },
+        {
+          "name": "Not expired",
+          "ok": true,
+          "detail": "expires 2027-03-01"
+        }
+      ],
+      "all_ok": true
+    }
+  },
+  {
+    "local_id": "l_02",
+    "request_id": "rq_8d7c6b5a4f",
+    "question": "Is monthly income above 60k?",
+    "status": "done",
+    "via": "agent",
+    "result": {
+      "answer_type": "OWNER_ATTESTED",
+      "claim": "income ge 60000",
+      "result": true,
+      "checks": [
+        {
+          "name": "Owner signature",
+          "ok": true,
+          "detail": "pairwise key from pairing"
+        },
+        {
+          "name": "Nonce and audience",
+          "ok": true,
+          "detail": "matches this request"
+        },
+        {
+          "name": "Not expired",
+          "ok": true,
+          "detail": "expires 2026-09-27"
+        }
+      ],
+      "all_ok": true
+    }
+  },
+  {
+    "local_id": "l_03",
+    "request_id": "rq_2a3b4c5d6e",
+    "question": "What is her date of birth?",
+    "status": "done",
+    "via": "web",
+    "result": {
+      "answer_type": "REFUSED",
+      "claim": "unsupported",
+      "result": null,
+      "checks": [],
+      "all_ok": false
+    }
+  },
+  {
+    "local_id": "l_04",
+    "request_id": "rq_7c6b5a4d3e",
+    "question": "Has she defaulted on a loan this year?",
+    "status": "pending",
+    "via": "web",
+    "result": null
+  }
+]

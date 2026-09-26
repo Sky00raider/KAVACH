@@ -1,0 +1,11 @@
+{
+  "ollama": true,
+  "models": {
+    "llm": "qwen3:8b",
+    "fast": "qwen3:4b",
+    "embed": "nomic-embed-text"
+  },
+  "model_loaded": true,
+  "db": true,
+  "vault_dir": "vault"
+}

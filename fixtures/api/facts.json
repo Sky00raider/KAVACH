@@ -1,0 +1,93 @@
+[
+  {
+    "fact_id": "f_1a2b3c4d5e",
+    "entity_id": "e_owner",
+    "field": "monthly_income",
+    "value": "62000",
+    "source_type": "issuer_doc",
+    "doc_id": "d_03a1b2c3d4",
+    "quote": "Salary Credit ... 62,000.00",
+    "valid_from": "2026-04-01",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_2b3c4d5e6f",
+    "entity_id": "e_owner",
+    "field": "loan_default_12m",
+    "value": "false",
+    "source_type": "issuer_doc",
+    "doc_id": "d_03a1b2c3d4",
+    "quote": "No defaults in the last 12 months",
+    "valid_from": "2026-09-01",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_3c4d5e6f7a",
+    "entity_id": "e_owner",
+    "field": "rent_amount",
+    "value": "15000",
+    "source_type": "extracted",
+    "doc_id": "d_7e21a0c9b4",
+    "quote": "Monthly rent: Rs. 15,000",
+    "valid_from": "2026-04-01",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_4d5e6f7a8b",
+    "entity_id": "e_owner",
+    "field": "agreement_end_date",
+    "value": "2027-03-31",
+    "source_type": "extracted",
+    "doc_id": "d_7e21a0c9b4",
+    "quote": "valid until 31/03/2027",
+    "valid_from": "2026-04-01",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_5e6f7a8b9c",
+    "entity_id": "e_owner",
+    "field": "landlord",
+    "value": "Ramesh Kumar",
+    "source_type": "extracted",
+    "doc_id": "d_7e21a0c9b4",
+    "quote": "between Mr. Ramesh Kumar (Landlord)",
+    "valid_from": "2026-04-01",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_6f7a8b9c0d",
+    "entity_id": "e_owner",
+    "field": "percentage",
+    "value": "82.4",
+    "source_type": "issuer_doc",
+    "doc_id": "d_5b6c7d8e9f",
+    "quote": "Aggregate: 82.4%",
+    "valid_from": "2024-06-10",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "high"
+  },
+  {
+    "fact_id": "f_7a8b9c0d1e",
+    "entity_id": "e_owner",
+    "field": "employer",
+    "value": "Acme Analytics",
+    "source_type": "extracted",
+    "doc_id": "d_2b3c4d5e6f",
+    "quote": "I work at Acme Analytics",
+    "valid_from": "2026-08-14",
+    "valid_to": null,
+    "superseded_by": null,
+    "confidence": "low"
+  }
+]

@@ -1,0 +1,137 @@
+{
+  "nodes": [
+    {
+      "id": "e_owner",
+      "type": "PERSON",
+      "name": "Ananya Rao"
+    },
+    {
+      "id": "e_5c4b3a2d1e",
+      "type": "PERSON",
+      "name": "Ramesh Kumar"
+    },
+    {
+      "id": "e_6d5c4b3a2f",
+      "type": "ORG",
+      "name": "Mock Bank"
+    },
+    {
+      "id": "e_2f1e0d9c8b",
+      "type": "ORG",
+      "name": "State Board of Secondary Education"
+    },
+    {
+      "id": "e_7a6b5c4d3e",
+      "type": "PROJECT",
+      "name": "Flat move 2026"
+    },
+    {
+      "id": "e_8b7a6c5d4f",
+      "type": "CONCEPT",
+      "name": "rent renewal"
+    },
+    {
+      "id": "e_9c8b7a6d5e",
+      "type": "CONCEPT",
+      "name": "education loan"
+    },
+    {
+      "id": "e_0d9c8b7a6f",
+      "type": "DECISION",
+      "name": "Renew only if rent stays under ₹15k"
+    },
+    {
+      "id": "e_1e0d9c8b7a",
+      "type": "PLACE",
+      "name": "Flat 4B, Indiranagar"
+    },
+    {
+      "id": "e_3a2f1e0d9c",
+      "type": "OBLIGATION",
+      "name": "Monthly rent"
+    }
+  ],
+  "edges": [
+    {
+      "id": "x_0a1b2c3d4e",
+      "src": "e_5c4b3a2d1e",
+      "dst": "e_owner",
+      "rel": "LANDLORD_OF",
+      "valid_from": "2026-04-01",
+      "valid_to": null,
+      "source_chunk_id": "c_3f9a1b2c4d"
+    },
+    {
+      "id": "x_1b2c3d4e5f",
+      "src": "e_owner",
+      "dst": "e_6d5c4b3a2f",
+      "rel": "BANKS_WITH",
+      "valid_from": "2025-01-01",
+      "valid_to": null,
+      "source_chunk_id": null
+    },
+    {
+      "id": "x_2c3d4e5f6a",
+      "src": "e_owner",
+      "dst": "e_7a6b5c4d3e",
+      "rel": "WORKS_ON",
+      "valid_from": "2026-09-01",
+      "valid_to": null,
+      "source_chunk_id": "c_6e5d4c3b2a"
+    },
+    {
+      "id": "x_3d4e5f6a7b",
+      "src": "e_owner",
+      "dst": "e_0d9c8b7a6f",
+      "rel": "DECIDED",
+      "valid_from": "2026-09-12",
+      "valid_to": null,
+      "source_chunk_id": "c_6e5d4c3b2a"
+    },
+    {
+      "id": "x_4e5f6a7b8c",
+      "src": "e_0d9c8b7a6f",
+      "dst": "e_8b7a6c5d4f",
+      "rel": "ABOUT",
+      "valid_from": "2026-09-12",
+      "valid_to": null,
+      "source_chunk_id": "c_6e5d4c3b2a"
+    },
+    {
+      "id": "x_5f6a7b8c9d",
+      "src": "e_0d9c8b7a6f",
+      "dst": "e_7a6b5c4d3e",
+      "rel": "PART_OF",
+      "valid_from": "2026-09-12",
+      "valid_to": null,
+      "source_chunk_id": "c_6e5d4c3b2a"
+    },
+    {
+      "id": "x_6a7b8c9d0e",
+      "src": "e_owner",
+      "dst": "e_3a2f1e0d9c",
+      "rel": "PARTY_TO",
+      "valid_from": "2026-04-01",
+      "valid_to": null,
+      "source_chunk_id": "c_3f9a1b2c4d"
+    },
+    {
+      "id": "x_7b8c9d0e1f",
+      "src": "e_owner",
+      "dst": "e_2f1e0d9c8b",
+      "rel": "STUDIED_AT",
+      "valid_from": null,
+      "valid_to": "2024-06-10",
+      "source_chunk_id": null
+    },
+    {
+      "id": "x_8c9d0e1f2a",
+      "src": "e_9c8b7a6d5e",
+      "dst": "e_7a6b5c4d3e",
+      "rel": "RELATES_TO",
+      "valid_from": "2026-09-01",
+      "valid_to": null,
+      "source_chunk_id": "c_6e5d4c3b2a"
+    }
+  ]
+}

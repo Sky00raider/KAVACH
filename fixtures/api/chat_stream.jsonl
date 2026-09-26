@@ -1,0 +1,37 @@
+{"event": "meta", "data": {"entities_used": ["e_owner", "e_5c4b3a2d1e", "e_0d9c8b7a6f", "e_7a6b5c4d3e"], "chunks": [{"n": 1, "chunk_id": "c_3f9a1b2c4d", "doc_id": "d_7e21a0c9b4", "locator": "page 1"}, {"n": 2, "chunk_id": "c_8b7c6d5e4f", "doc_id": "d_7e21a0c9b4", "locator": "page 2"}, {"n": 3, "chunk_id": "c_6e5d4c3b2a", "doc_id": "d_4f3e2d1c0b", "locator": "note: rent-renewal.md"}]}}
+{"event": "token", "data": {"text": "Your"}}
+{"event": "token", "data": {"text": " rent"}}
+{"event": "token", "data": {"text": " is"}}
+{"event": "token", "data": {"text": " ₹15,000"}}
+{"event": "token", "data": {"text": " a"}}
+{"event": "token", "data": {"text": " month"}}
+{"event": "token", "data": {"text": " [1],"}}
+{"event": "token", "data": {"text": " and"}}
+{"event": "token", "data": {"text": " the"}}
+{"event": "token", "data": {"text": " agreement"}}
+{"event": "token", "data": {"text": " with"}}
+{"event": "token", "data": {"text": " Ramesh"}}
+{"event": "token", "data": {"text": " Kumar"}}
+{"event": "token", "data": {"text": " runs"}}
+{"event": "token", "data": {"text": " until"}}
+{"event": "token", "data": {"text": " 31"}}
+{"event": "token", "data": {"text": " March"}}
+{"event": "token", "data": {"text": " 2027"}}
+{"event": "token", "data": {"text": " [2]."}}
+{"event": "token", "data": {"text": " You"}}
+{"event": "token", "data": {"text": " decided"}}
+{"event": "token", "data": {"text": " on"}}
+{"event": "token", "data": {"text": " 12"}}
+{"event": "token", "data": {"text": " Sep"}}
+{"event": "token", "data": {"text": " to"}}
+{"event": "token", "data": {"text": " renew"}}
+{"event": "token", "data": {"text": " only"}}
+{"event": "token", "data": {"text": " if"}}
+{"event": "token", "data": {"text": " the"}}
+{"event": "token", "data": {"text": " rent"}}
+{"event": "token", "data": {"text": " stays"}}
+{"event": "token", "data": {"text": " under"}}
+{"event": "token", "data": {"text": " ₹15k"}}
+{"event": "token", "data": {"text": " [3]."}}
+{"event": "final", "data": {"answer": "Your rent is ₹15,000 a month [1], and the agreement with Ramesh Kumar runs until 31 March 2027 [2]. You decided on 12 Sep to renew only if the rent stays under ₹15k [3].", "citations": [{"n": 1, "chunk_id": "c_3f9a1b2c4d", "doc_id": "d_7e21a0c9b4", "locator": "page 1", "quote": "Monthly rent: Rs. 15,000"}, {"n": 2, "chunk_id": "c_8b7c6d5e4f", "doc_id": "d_7e21a0c9b4", "locator": "page 2", "quote": "valid until 31/03/2027"}, {"n": 3, "chunk_id": "c_6e5d4c3b2a", "doc_id": "d_4f3e2d1c0b", "locator": "note: rent-renewal.md", "quote": "Decided to renew only if rent stays under ₹15k"}], "citation_ok": true, "flags": [], "memory_candidates": [{"candidate_id": "mc_4a5b6c7d8e", "statement": "I'm planning to move out by December if rent goes up", "kind": "decision", "field": null, "value": null, "valid_from": "2026-09-26", "project_entity_id": "e_7a6b5c4d3e", "status": "pending", "created_at": "2026-09-26T12:01:00Z"}]}}
+{"event": "done", "data": {"latency_ms": 4120, "first_token_ms": 910}}

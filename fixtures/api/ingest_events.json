@@ -1,0 +1,77 @@
+{
+  "events": [
+    {
+      "seq": 1,
+      "ts": "2026-09-26T09:10:00Z",
+      "path": "vault/pdfs/bank_statement_signed.pdf",
+      "doc_id": "d_03a1b2c3d4",
+      "signature_status": "issuer_signed",
+      "entities_added": 2,
+      "facts_added": 2
+    },
+    {
+      "seq": 2,
+      "ts": "2026-09-26T09:11:00Z",
+      "path": "vault/pdfs/rent_agreement.pdf",
+      "doc_id": "d_7e21a0c9b4",
+      "signature_status": "unsigned",
+      "entities_added": 3,
+      "facts_added": 3
+    },
+    {
+      "seq": 3,
+      "ts": "2026-09-26T09:12:00Z",
+      "path": "vault/pdfs/marksheet_signed.pdf",
+      "doc_id": "d_5b6c7d8e9f",
+      "signature_status": "issuer_signed",
+      "entities_added": 1,
+      "facts_added": 3
+    },
+    {
+      "seq": 4,
+      "ts": "2026-09-26T09:13:00Z",
+      "path": "vault/pdfs/id_card_signed.pdf",
+      "doc_id": "d_1c2d3e4f5a",
+      "signature_status": "issuer_signed",
+      "entities_added": 0,
+      "facts_added": 1
+    },
+    {
+      "seq": 5,
+      "ts": "2026-09-26T09:14:00Z",
+      "path": "vault/pdfs/bank_statement_TAMPERED.pdf",
+      "doc_id": "d_8f7e6d5c4b",
+      "signature_status": "invalid",
+      "entities_added": 0,
+      "facts_added": 0
+    },
+    {
+      "seq": 6,
+      "ts": "2026-09-26T09:15:00Z",
+      "path": "vault/notes/flat-move-2026.md",
+      "doc_id": "d_9a8b7c6d5e",
+      "signature_status": "unsigned",
+      "entities_added": 4,
+      "facts_added": 0
+    },
+    {
+      "seq": 7,
+      "ts": "2026-09-26T09:16:00Z",
+      "path": "vault/notes/rent-renewal.md",
+      "doc_id": "d_4f3e2d1c0b",
+      "signature_status": "unsigned",
+      "entities_added": 3,
+      "facts_added": 0
+    },
+    {
+      "seq": 8,
+      "ts": "2026-09-26T09:17:00Z",
+      "path": "vault/chats/landlord.txt",
+      "doc_id": "d_2b3c4d5e6f",
+      "signature_status": "unsigned",
+      "entities_added": 2,
+      "facts_added": 1
+    }
+  ],
+  "last_seq": 8
+}
