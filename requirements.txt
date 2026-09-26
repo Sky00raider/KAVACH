@@ -1,0 +1,13 @@
+# Python 3.11+. Direct dependencies only, pinned; pip resolves the rest.
+fastapi==0.141.1
+uvicorn==0.54.0
+pydantic==2.13.5
+python-multipart==0.0.32
+numpy==2.5.3; python_version >= "3.12"
+numpy==2.2.6; python_version < "3.12"
+pymupdf==1.28.2
+watchdog==6.0.0
+cryptography==50.0.1
+mcp==2.2.0
+httpx==0.28.1
+pytest==9.1.1
