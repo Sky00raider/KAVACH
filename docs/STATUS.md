@@ -31,7 +31,17 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`
 
 **Blocked**
-- Model choice: default `qwen3:8b` / `qwen3:4b` not pulled on the owner laptop yet. Bench on it with qwen2.5:7b / qwen2.5:3b / nomic-embed-text (2 runs): first token 2.8 s OK, parse 3.9 s SLOW, embed 100 chunks 33.8 s SLOW
+- Model choice (owner picks; `config.py` defaults unchanged). Benchmark below.
+
+**Model benchmark** (26 Sep, owner laptop: Ryzen 7 7730U, 16 GB, Ollama 0.34.4, CPU only; `scripts/bench_models.py --runs 3`, all models unloaded before each run; medians; embed = nomic-embed-text, dim 768)
+
+| LLM / FAST | Chat think | Chat first token (< 5 s) | Chat full answer | Parse (< 3 s) | Parse correct | Embed 100 chunks (< 20 s) |
+|---|---|---|---|---|---|---|
+| qwen2.5:7b / qwen2.5:3b | n/a | 0.18 s | 6.9 s | 1.40 s | 3/3 | 21.6 s |
+| qwen3:8b / qwen3:4b | default (on) | 51.5 s | 57.1 s | 4.39 s | 0/3 | 21.6 s |
+| qwen3:8b / qwen3:4b | false (bench only) | 0.19 s | 6.1 s | 2.51 s | 0/3 | 22.5 s |
+
+Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "50k"` (a string, which the Claim schema allows), hence 0/3; that's a prompt/validation fix for BRAIN, not speed. First-token times benefit from Ollama's prompt cache (same short prompt every run); real chat with ~8 retrieved chunks will be slower on CPU. Embedding is ~1.5 s over target on every family.
 
 ## BRAIN (§6.2)
 
