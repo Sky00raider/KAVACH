@@ -1,6 +1,8 @@
 """Time the config.py models against a running Ollama (BUILD_PLAN.md section 3, step 5).
 
 Measures chat first token, full answer, a structured question parse and embedding 100 chunks.
+Request bodies come from kavach.brain.llm, so this times exactly what the product sends
+(structured calls with think=false; embeddings as one batched /api/embed call).
 Targets on the owner laptop: first token < 5 s, parse < 3 s, 100 embeddings < 20 s.
 
 Usage: python scripts/bench_models.py [--runs 3] [--llm MODEL] [--fast MODEL] [--embed MODEL]
@@ -21,6 +23,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from kavach import config  # noqa: E402
+from kavach.brain import llm  # noqa: E402
 from kavach.models import Claim  # noqa: E402
 
 TARGETS = {"first_token_s": 5.0, "parse_s": 3.0, "embed_100_s": 20.0}
@@ -39,16 +42,11 @@ CHUNK = ("Salary credit from Acme Analytics of Rs. 62,000.00 on 01/04/2026. Rent
          "Electricity bill Rs. 1,240. Transfer to savings Rs. 10,000. Closing balance Rs. 48,315.22. ") * 4
 
 
-def _opts() -> dict:
-    return {"temperature": 0}
-
-
 def bench_chat(client: httpx.Client, model: str) -> tuple[float, float]:
     start = time.perf_counter()
     first = None
-    body = {"model": model, "messages": CHAT_PROMPT, "stream": True, "options": _opts(),
-            "keep_alive": config.OLLAMA_KEEP_ALIVE}
-    with client.stream("POST", "/api/chat", json=body) as resp:
+    body = llm.chat_request(CHAT_PROMPT, model, stream=True)
+    with client.stream("POST", llm.CHAT_PATH, json=body) as resp:
         resp.raise_for_status()
         for line in resp.iter_lines():
             if not line:
@@ -64,9 +62,7 @@ def bench_chat(client: httpx.Client, model: str) -> tuple[float, float]:
 
 def bench_parse(client: httpx.Client, model: str) -> tuple[float, bool]:
     start = time.perf_counter()
-    body = {"model": model, "messages": PARSE_PROMPT, "stream": False, "format": Claim.model_json_schema(),
-            "options": _opts(), "keep_alive": config.OLLAMA_KEEP_ALIVE}
-    resp = client.post("/api/chat", json=body)
+    resp = client.post(llm.CHAT_PATH, json=llm.structured_request(PARSE_PROMPT, Claim, model))
     resp.raise_for_status()
     elapsed = time.perf_counter() - start
     try:
@@ -79,8 +75,7 @@ def bench_parse(client: httpx.Client, model: str) -> tuple[float, bool]:
 
 def bench_embed(client: httpx.Client, model: str, n: int = 100) -> tuple[float, int]:
     start = time.perf_counter()
-    body = {"model": model, "input": [f"{i}: {CHUNK}" for i in range(n)], "keep_alive": config.OLLAMA_KEEP_ALIVE}
-    resp = client.post("/api/embed", json=body)
+    resp = client.post(llm.EMBED_PATH, json=llm.embed_request([f"{i}: {CHUNK}" for i in range(n)], model))
     resp.raise_for_status()
     dim = len(resp.json()["embeddings"][0])
     return time.perf_counter() - start, dim
