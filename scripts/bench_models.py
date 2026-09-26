@@ -5,7 +5,9 @@ Request bodies come from kavach.brain.llm, so this times exactly what the produc
 (structured calls with think=false; embeddings as one batched /api/embed call).
 Targets on the owner laptop: first token < 5 s, parse < 3 s, 100 embeddings < 20 s.
 
-Usage: python scripts/bench_models.py [--runs 3] [--llm MODEL] [--fast MODEL] [--embed MODEL]
+Every loaded model is unloaded first, so earlier runs (keep_alive=24h) do not compete for memory.
+
+Usage: python scripts/bench_models.py [--runs 3] [--llm MODEL] [--fast MODEL] [--embed MODEL] [--chat-no-think]
 Record the results and the chosen models in docs/DECISIONS.md.
 """
 
@@ -42,10 +44,20 @@ CHUNK = ("Salary credit from Acme Analytics of Rs. 62,000.00 on 01/04/2026. Rent
          "Electricity bill Rs. 1,240. Transfer to savings Rs. 10,000. Closing balance Rs. 48,315.22. ") * 4
 
 
-def bench_chat(client: httpx.Client, model: str) -> tuple[float, float]:
+def unload_all(client: httpx.Client) -> list[str]:
+    """Evict every model Ollama has loaded (keep_alive=0) and return their names."""
+    names = [m["name"] for m in client.get("/api/ps").json().get("models", [])]
+    for name in names:
+        client.post("/api/generate", json={"model": name, "keep_alive": 0}).raise_for_status()
+    return names
+
+
+def bench_chat(client: httpx.Client, model: str, no_think: bool = False) -> tuple[float, float]:
     start = time.perf_counter()
     first = None
     body = llm.chat_request(CHAT_PROMPT, model, stream=True)
+    if no_think:
+        body["think"] = False  # bench-only comparison; product chat follows llm.chat_request
     with client.stream("POST", llm.CHAT_PATH, json=body) as resp:
         resp.raise_for_status()
         for line in resp.iter_lines():
@@ -93,6 +105,7 @@ def main() -> int:
     parser.add_argument("--llm", default=config.LLM_MODEL)
     parser.add_argument("--fast", default=config.FAST_MODEL)
     parser.add_argument("--embed", default=config.EMBED_MODEL)
+    parser.add_argument("--chat-no-think", action="store_true", help="send think=false on chat too (comparison only)")
     args = parser.parse_args()
 
     client = httpx.Client(base_url=config.OLLAMA_URL, timeout=httpx.Timeout(300.0, connect=5.0))
@@ -107,9 +120,13 @@ def main() -> int:
         print(f"Missing models: {', '.join(missing)}. Run: ollama pull <model>")
         return 1
 
-    print(f"Ollama {config.OLLAMA_URL}  llm={args.llm}  fast={args.fast}  embed={args.embed}  runs={args.runs}")
+    print(f"Ollama {config.OLLAMA_URL}  llm={args.llm}  fast={args.fast}  embed={args.embed}  runs={args.runs}"
+          + ("  chat think=false" if args.chat_no_think else ""))
+    unloaded = unload_all(client)
+    if unloaded:
+        print(f"Unloaded: {', '.join(unloaded)}")
     print("Warming up (first load is excluded)...")
-    bench_chat(client, args.llm)
+    bench_chat(client, args.llm, args.chat_no_think)
     bench_parse(client, args.fast)
     bench_embed(client, args.embed, n=2)
 
@@ -117,7 +134,7 @@ def main() -> int:
     parse_ok = 0
     dim = 0
     for _ in range(args.runs):
-        f, t = bench_chat(client, args.llm)
+        f, t = bench_chat(client, args.llm, args.chat_no_think)
         firsts.append(f)
         totals.append(t)
         p, ok = bench_parse(client, args.fast)
