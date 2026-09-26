@@ -41,7 +41,9 @@ Each code track builds the UI pages for its own features. Shared UI (layout, sid
 
 ## Commands
 ```
-source .venv/bin/activate
+python -m venv .venv                                  # once (Python 3.11+)
+source .venv/bin/activate                             # macOS / Linux
+pip install -r requirements.txt
 uvicorn kavach.api:app --host 0.0.0.0 --port 8000     # owner API + built UI
 python -m kavach.gate_mcp                             # inbound MCP gate on :8001
 uvicorn requester.app:app --host 0.0.0.0 --port 9000  # requester laptop
@@ -50,7 +52,19 @@ cd frontend && npm run gen:types                      # regenerate TS types from
 pytest -m "not llm"                                   # fast tests
 pytest                                                # all tests, needs Ollama running
 python scripts/reset_demo.py                          # restore clean demo state
+python scripts/bench_models.py                        # time the config.py models on local Ollama
 ```
+
+Windows (PowerShell) differences:
+```
+py -3.12 -m venv .venv                                # or any 3.11+
+.\.venv\Scripts\Activate.ps1                          # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+cd frontend; npm run dev                              # PowerShell 5.1 has no &&; use ; or separate lines
+$env:VITE_USE_FIXTURES = "1"; npm run dev             # env vars: $env:NAME = "value", not NAME=value cmd
+```
+Everything else is identical. Scripts are Python, not shell, so they run the same on every OS.
+
+Progress lives in docs/STATUS.md; update your track's section in every commit that completes a step.
 
 ## Tests and commits
 - Every module gets pytest tests. Tests that call Ollama are marked `@pytest.mark.llm`.
