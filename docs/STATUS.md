@@ -24,9 +24,9 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 - 5. `fixtures/api/*.json` per §15 (+ `chunk.json`), `tests/test_fixtures.py` (incl. audit hash chain)
 - 8. `scripts/bench_models.py` (verified against local Ollama), `scripts/reset_demo.py` skeleton (file steps work)
 - 9. `requirements.txt` (pinned, 3.11+), `pytest.ini` with `llm` marker, tests for config/db/stubs/scripts
+- 4. `api.py`: every §9 route wired to stubs; owner auth (token + `request.client.host` loopback, no proxy headers, `--no-proxy-headers`); index.html token injection (loopback only, placeholder until `frontend/dist` exists); §10 SSE stream with `error` on exceptions; safe non-overwriting uploads; `/api/ingest/events` from `ingested` audit entries; `X-Channel: mcp` only from loopback. CONTRACT: `consent.poll` (+ fp match), `consent.RequestRejected`, `pairing.decide`, `decide.claims`, reject reasons `unknown_request`/`wrong_requester`, `ingested` detail shape. `tests/test_api.py`
 
 **Next**
-4. `api.py`: every §9 route wired to stubs, owner auth, token injection, canned §10 chat stream
 6. `requester/app.py` (§12 stubs); `gate_mcp.py`, `tools_mcp.py` with tools registered
 7. `frontend/` shell: Vite + React + TS + Tailwind + shadcn/ui, routes per §14, API client with fixture mode, dev proxy, `gen:types`
 
