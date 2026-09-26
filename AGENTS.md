@@ -27,7 +27,7 @@ A local-first second brain for an individual. It ingests their documents, notes 
 Each code track builds the UI pages for its own features. Shared UI (layout, sidebar, API client, theme, shadcn components) lives in the shell; if you need a new shared component, add it under `frontend/src/components/shared/` and mention it in the commit message.
 
 ## Stack
-- **Use Python 3.12** (every laptop; the venv and pinned requirements assume it). FastAPI + Uvicorn, Pydantic v2, SQLite, NumPy (vector search, no sqlite-vec), PyMuPDF, watchdog, cryptography (Ed25519, SHA-256), `mcp` Python SDK (FastMCP), httpx, pytest.
+- **Use Python 3.12** (every laptop; the venv and pinned requirements assume it). FastAPI + Uvicorn, Pydantic v2, SQLite, NumPy (vector search, no sqlite-vec), PyMuPDF, watchdog, cryptography (Ed25519, SHA-256), `mcp` Python SDK 2.x (`mcp.server.mcpserver.MCPServer`, the renamed FastMCP; `mcp.Client`), httpx, pytest.
 - Ollama: models are named only in `config.py` (`LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`). Never hard-code a model name elsewhere.
 - Frontend: React + Vite + TypeScript + Tailwind + shadcn/ui, `react-force-graph-2d` for the graph. Built to `frontend/dist`, served by FastAPI.
 

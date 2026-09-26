@@ -9,7 +9,9 @@ from pathlib import Path
 import pytest
 
 _TMP = Path(tempfile.mkdtemp(prefix="kavach-test-"))
-for _name, _sub in {"DB_PATH": "kavach.db", "VAULT_DIR": "vault", "OUTBOX_DIR": "outbox", "KEYS_DIR": "keys"}.items():
+_DIRS = {"DB_PATH": "kavach.db", "VAULT_DIR": "vault", "OUTBOX_DIR": "outbox", "KEYS_DIR": "keys",
+         "REQUESTER_DATA_DIR": "requester_data"}
+for _name, _sub in _DIRS.items():
     os.environ[_name] = str(_TMP / _sub)
 os.environ["OWNER_TOKEN"] = "test-owner-token"
 
