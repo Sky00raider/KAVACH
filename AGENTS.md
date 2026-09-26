@@ -71,6 +71,7 @@ Progress lives in docs/STATUS.md; update your track's section in every commit th
 - Run `pytest -m "not llm"` before every commit; it must pass.
 - Small commits, one logical change each, Conventional Commits with the track as scope: `feat(brain): hybrid search`, `fix(trust): nonce reuse check`, `docs(contract): add wallet endpoint`.
 - Never commit keys, `kavach.db`, `vault/`, `private/` or anything under `.gitignore`.
+- **Never force-push to `main`** and never rewrite its history (no `push --force`, `--force-with-lease`, rebase or amend of pushed commits). Fix mistakes with a new commit; if history truly must change, stop and ask the humans.
 - Any design change: add one line to `docs/DECISIONS.md` in the same commit.
 
 ## Where to look
