@@ -73,7 +73,7 @@ kavach/                         repo root
 
 ## 3. Config (`kavach/config.py`, env-overridable)
 
-`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `OLLAMA_KEEP_ALIVE` (default `"24h"`), `NUM_CTX=8192` (Ollama `options.num_ctx` on chat and structured calls), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
+`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `EMBED_DOC_PREFIX="search_document: "` (prepended to every chunk before embedding), `EMBED_QUERY_PREFIX="search_query: "` (prepended to every search query), `OLLAMA_KEEP_ALIVE` (default `"24h"`), `NUM_CTX=8192` (Ollama `options.num_ctx` on chat and structured calls), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
 
 ## 4. Knowledge model
 
@@ -197,7 +197,7 @@ Types come from `kavach/models.py`. Anything not listed is private to its module
 ```python
 # brain (BRAIN)
 ingest.ingest_file(path: Path) -> IngestResult
-ingest.remove_file(path: Path) -> None               # supersede facts, drop chunks
+ingest.remove_file(path: Path) -> None               # close facts + edges, drop chunks, audit document_removed
 watcher.start(vault_dir: Path) -> Observer
 embed.search(query: str, k: int = 8) -> list[ScoredChunk]
 chat.answer(question: str, history: list[ChatTurn]) -> ChatResult
@@ -243,7 +243,7 @@ Shapes used above that are not defined elsewhere in this contract:
 | `LedgerCheck` | `allowed: bool, reason: str\|null` |
 | `ChainStatus` | `intact: bool, broken_at: seq\|null, entries: int` |
 | `Plan` | `instruction, calls: [ToolCall], warnings: [str]`; `ToolCall = {tool, args, preview}`, `args` typed per §11.2 |
-| `ToolResult` | `tool, ok: bool, output_path: str\|null, detail: str\|null` |
+| `ToolResult` | `tool, ok: bool, output_path: str\|null, detail: str\|null`; `output_path` is relative to the runtime root (`outbox/...`, `vault/notes/...`), unlike `documents.path` |
 | `Task` | `task_id, instruction, plan: Plan, status, result: [ToolResult]\|null, created_at, decided_at` |
 | `Document` | the `documents` row (§8); `path` is vault-relative |
 | `Entity` | `entity_id, type, name, attrs: {str: str}` |
@@ -381,11 +381,13 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 13. Audit events
 
-`ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
+`ingested`, `document_signature_failed`, `document_removed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
 
 `request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester`, `malformed` (`models.RejectReason`). `malformed` is a request to `/api/ask*` that fails validation (bad body, missing or non-integer `X-*` headers); it still returns `422`, and its `detail` is exactly `{reason, route, client_ip, error_type}`, never the body.
 
 `document_signature_failed`: logged at ingest when `issuer_check.verify_pdf()` returns `invalid`. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, iss, reason}` with `path` vault-relative, `iss` the claimed issuer or null, `reason` the `SignatureResult.detail`.
+
+`document_removed`: logged by `ingest.remove_file` when a known, not-yet-removed document's file is deleted. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id}` with `path` vault-relative.
 
 `ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}` with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 

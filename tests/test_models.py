@@ -43,3 +43,8 @@ def test_ask_ts_is_unix_seconds():
 def test_request_rejected_is_an_audit_event():
     AuditEntry(seq=1, ts="2026-09-26T12:00:00Z", event="request_rejected", ref_id=None,
                detail={"reason": "nonce_reuse"}, prev_hash="0" * 64, entry_hash="a" * 64)
+
+
+def test_document_removed_is_an_audit_event():
+    AuditEntry(seq=1, ts="2026-09-26T12:00:00Z", event="document_removed", ref_id="d_1",
+               detail={"path": "notes/a.md", "doc_id": "d_1"}, prev_hash="0" * 64, entry_hash="a" * 64)

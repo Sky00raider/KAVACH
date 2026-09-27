@@ -32,6 +32,7 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 - `api.py`: owner routes and token injection also require a loopback `Host` header (DNS rebinding); tests for `Host: evil` on `GET /` (no token) and every owner route (`403`)
 
 - `kavach/textnorm.py` (§6.5): `normalize_text`, `text_hash`, `pdf_pages`, `pdf_text_hash`; issuers sign the generated PDF's `pdf_text_hash`; `documents.path` vault-relative (fixtures fixed, audit fixture re-chained); `document_signature_failed` detail `{path, doc_id, iss, reason}` (§13). `tests/test_textnorm.py`
+- `document_removed` audit event (§13, `{path, doc_id}`; models, audit fixture, `types.ts` regenerated); `ToolResult.output_path` runtime-root-relative (§7); `EMBED_DOC_PREFIX` / `EMBED_QUERY_PREFIX` in config (§3)
 
 **Next**
 - Scaffold complete. CONTRACT owner: review CONTRACT change proposals from BRAIN/TRUST

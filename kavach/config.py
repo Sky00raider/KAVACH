@@ -29,6 +29,9 @@ LLM_MODEL = _env("LLM_MODEL", "qwen2.5:7b")
 FAST_MODEL = _env("FAST_MODEL", "qwen2.5:3b")
 EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(_env("EMBED_DIM", "768"))
+# nomic-embed-text task prefixes: chunks are embedded as documents, questions as queries
+EMBED_DOC_PREFIX = _env("EMBED_DOC_PREFIX", "search_document: ")
+EMBED_QUERY_PREFIX = _env("EMBED_QUERY_PREFIX", "search_query: ")
 OLLAMA_KEEP_ALIVE = _env("OLLAMA_KEEP_ALIVE", "24h")
 NUM_CTX = int(_env("NUM_CTX", "8192"))  # options.num_ctx on chat and structured calls
 

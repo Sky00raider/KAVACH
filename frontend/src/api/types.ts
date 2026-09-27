@@ -510,7 +510,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "ingested" | "document_signature_failed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected";
+            event: "ingested" | "document_signature_failed" | "document_removed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected";
             /** Ref Id */
             ref_id?: string | null;
             /** Detail */
