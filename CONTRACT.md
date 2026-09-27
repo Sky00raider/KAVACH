@@ -292,7 +292,7 @@ Owner routes and token injection also require the `Host` header to be `localhost
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: {llm, fast, embed} -> bool (resident in Ollama now), db: bool, vault_dir}` |
+| GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: {llm, fast, embed} -> bool (resident in Ollama now), db: bool, vault_dir, local_inference: bool}` (`local_inference`: the host of `OLLAMA_URL` is loopback, i.e. models run on this machine) |
 | POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` (vault-relative). `.pdf` -> `pdfs/`, `.md` -> `notes/`, `.txt` -> `chats/`, else `415`. Filename is reduced to its basename; empty, `.`/`..`, absolute or drive paths -> `400` (the multipart parser may already reduce a Windows full path to its basename, which is then stored as such). An existing file is never overwritten: same bytes -> `200` with its path, different bytes -> `409` |
 | POST | `/api/ingest/sync` | | rescan -> `{ingested:[IngestResult]}` |
 | GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
@@ -337,13 +337,16 @@ Server-sent events over a POST response (frontend reads with `fetch` + `Readable
 event: meta        data: {"entities_used":["e_..."], "chunks":[{"n":1,"chunk_id":"c_...","doc_id":"d_...","locator":"page 2"}]}
 event: token       data: {"text":"..."}
 event: final       data: {"answer":"...","citations":[{"n":1,"chunk_id":"...","doc_id":"...","locator":"...","quote":"..."}],
-                          "citation_ok":true,"flags":[],"memory_candidates":[MemoryCandidate]}
-event: done        data: {"latency_ms":1234,"first_token_ms":800}
+                          "citation_ok":true,"flags":[],"memory_candidates":[MemoryCandidate],"excluded_docs":[]}
+event: done        data: {"latency_ms":1234,"first_token_ms":800,"prompt_tokens":1540}
 event: error       data: {"message":"..."}
 ```
 `citation_ok=false` when any `[n]` is not a supplied chunk or the answer has no citation.
 
+Chunks of documents whose `signature_status` is `invalid` are never retrieved for chat. `excluded_docs` lists the vault-relative paths of those documents that would otherwise have been among the chunks sent to the model (then `flags` has `tampered_source_excluded`); empty otherwise. `prompt_tokens` is Ollama's `prompt_eval_count` for the answer, `null` when the model was not called.
+
 `flags` values (any combination, in this order):
+- `tampered_source_excluded`: at least one document was left out because its signature check failed; `excluded_docs` names them.
 - `no_context`: search found no chunks; the model is not called and the answer is "I don't have that in your vault."
 - `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored), in whole or for part of the question.
 - `no_citation`: no `[n]` in an answer that is not `not_in_vault`.

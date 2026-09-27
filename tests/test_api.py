@@ -168,6 +168,17 @@ def test_health_reports_config_models_and_unreachable_ollama(fresh_db, monkeypat
     assert h.db and not h.ollama and h.model_loaded == {"llm": False, "fast": False, "embed": False}
 
 
+@pytest.mark.parametrize("url, local", [
+    ("http://127.0.0.1:11434", True), ("http://localhost:11434", True), ("http://[::1]:11434", True),
+    ("http://127.0.0.2:11434", True), ("http://192.168.1.20:11434", False), ("http://gpu-box.local:11434", False),
+    ("http://localhost.evil.com:11434", False),
+])
+def test_health_local_inference_follows_ollama_host(client, monkeypatch, url, local):
+    monkeypatch.setattr(config, "OLLAMA_URL", url)
+    monkeypatch.setattr(api, "_ollama_status", lambda: (True, set()))
+    assert Health.model_validate(client.get("/api/health", headers=TOKEN).json()).local_inference is local
+
+
 def test_health_model_loaded_per_role(client, monkeypatch):
     monkeypatch.setattr(api, "_ollama_status", lambda: (True, {api._full_name(config.LLM_MODEL),
                                                                api._full_name(config.EMBED_MODEL)}))

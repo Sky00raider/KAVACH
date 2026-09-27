@@ -133,13 +133,16 @@ describe("buildHistory", () => {
 describe("footerText", () => {
   it("states only measured facts", () => {
     expect(footerText(turn())).toBeNull()
-    expect(footerText(turn({ model: "qwen2.5:7b", final: final(), done: { latency_ms: 4120, first_token_ms: 910 } }))).toBe(
+    const done = { latency_ms: 4120, first_token_ms: 910 }
+    expect(footerText(turn({ model: "qwen2.5:7b", local: true, final: final(), done }))).toBe(
       "Answered on this device · qwen2.5:7b · 910 ms first token / 4.1 s total",
     )
-    expect(footerText(turn({ final: final(), done: { latency_ms: 4120, first_token_ms: 910 } }))).toBe(
-      "Answered on this device · 910 ms first token / 4.1 s total",
+    expect(footerText(turn({ model: "qwen2.5:7b", local: false, final: final(), done }))).toBe(
+      "Answered on your self-hosted server · qwen2.5:7b · 910 ms first token / 4.1 s total",
     )
-    const none = turn({ model: "m", final: final({ flags: ["no_context", "not_in_vault"] }), done: { latency_ms: 80, first_token_ms: 80 } })
+    // health unavailable: no model name and no claim about where it ran
+    expect(footerText(turn({ final: final(), done }))).toBe("Answered · 910 ms first token / 4.1 s total")
+    const none = turn({ model: "m", local: true, final: final({ flags: ["no_context", "not_in_vault"] }), done: { latency_ms: 80, first_token_ms: 80 } })
     expect(footerText(none)).toBe("Answered on this device · nothing matched, no model call · 80 ms")
   })
 

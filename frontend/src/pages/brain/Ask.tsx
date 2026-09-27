@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
-import { AlertTriangle, ArrowUp, FileUp, Info, Laptop, RotateCcw, Sparkles, Square, SquarePen } from "lucide-react"
+import { AlertTriangle, ArrowUp, FileUp, Info, Laptop, RotateCcw, Server, Sparkles, Square, SquarePen } from "lucide-react"
 import { api, chatStream, type Document } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
@@ -176,7 +176,7 @@ function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry
 
         {footer && (
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Laptop className="size-3" />
+            {turn.local === false ? <Server className="size-3" /> : <Laptop className="size-3" />}
             {footer}
           </p>
         )}
@@ -225,8 +225,8 @@ export default function Ask() {
 
   const ingest = useIngest()
   const health = usePoll(api.health, HEALTH_MS)
-  const modelRef = useRef<string | undefined>(undefined)
-  modelRef.current = health.data?.models.llm
+  const healthRef = useRef(health.data)
+  healthRef.current = health.data
   const documents = usePoll(api.documents, null, [ingest.lastSeq])
   const docs: DocIndex = useMemo(
     () => new Map((documents.data ?? []).map((d: Document) => [d.doc_id, d])),
@@ -254,7 +254,14 @@ export default function Ask() {
           onMeta: (meta) => patch((t) => ({ ...t, meta, phase: "reading" })),
           onToken: ({ text }) => patch((t) => ({ ...t, text: t.text + text, phase: "answering" })),
           onFinal: (final) => patch((t) => ({ ...t, final, text: final.answer })),
-          onDone: (done) => patch((t) => ({ ...t, done, phase: "done", model: modelRef.current })),
+          onDone: (done) =>
+            patch((t) => ({
+              ...t,
+              done,
+              phase: "done",
+              model: healthRef.current?.models.llm,
+              local: healthRef.current?.local_inference,
+            })),
           onError: ({ message }) => patch((t) => ({ ...t, phase: "error", error: message })),
         },
         { signal: ctrl.signal },

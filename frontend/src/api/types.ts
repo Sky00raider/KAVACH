@@ -552,6 +552,8 @@ export interface components {
             latency_ms: number;
             /** First Token Ms */
             first_token_ms: number;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
         };
         /** ChatDoneEvent */
         ChatDoneEvent: {
@@ -591,6 +593,8 @@ export interface components {
             flags?: string[];
             /** Memory Candidates */
             memory_candidates?: components["schemas"]["MemoryCandidate"][];
+            /** Excluded Docs */
+            excluded_docs?: string[];
         };
         /** ChatFinalEvent */
         ChatFinalEvent: {
@@ -639,6 +643,8 @@ export interface components {
             flags?: string[];
             /** Memory Candidates */
             memory_candidates?: components["schemas"]["MemoryCandidate"][];
+            /** Excluded Docs */
+            excluded_docs?: string[];
             /** Entities Used */
             entities_used?: string[];
         };
@@ -960,6 +966,7 @@ export interface components {
         /**
          * Health
          * @description GET /api/health. `models` maps role (llm, fast, embed) -> configured name; `model_loaded` -> resident now.
+         *     `local_inference`: OLLAMA_URL's host is loopback (models run on this machine).
          */
         Health: {
             /** Ollama */
@@ -976,6 +983,8 @@ export interface components {
             db: boolean;
             /** Vault Dir */
             vault_dir: string;
+            /** Local Inference */
+            local_inference: boolean;
         };
         /** IngestEvent */
         IngestEvent: {

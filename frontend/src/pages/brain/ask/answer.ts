@@ -94,6 +94,8 @@ export interface Turn {
   error?: string
   /** LLM name from /api/health when the answer finished; absent when health was unavailable. */
   model?: string
+  /** /api/health `local_inference` when the answer finished; absent when health was unavailable. */
+  local?: boolean
 }
 
 /** Completed turns only, as the §10 `history`; stopped or failed answers are left out. */
@@ -144,10 +146,11 @@ export function formatMs(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`
 }
 
-/** The trust footer: only what was measured. */
+/** The trust footer: only what was measured. Where it ran comes from /api/health `local_inference`. */
 export function footerText(turn: Turn): string | null {
   if (!turn.done) return null
-  const parts = ["Answered on this device"]
+  const where = turn.local === true ? " on this device" : turn.local === false ? " on your self-hosted server" : ""
+  const parts = [`Answered${where}`]
   if (turn.final?.flags?.includes("no_context")) {
     parts.push("nothing matched, no model call", formatMs(turn.done.latency_ms))
   } else {

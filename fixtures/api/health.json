@@ -11,5 +11,6 @@
     "embed": true
   },
   "db": true,
-  "vault_dir": "vault"
+  "vault_dir": "vault",
+  "local_inference": true
 }

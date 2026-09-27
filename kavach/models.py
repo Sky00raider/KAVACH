@@ -223,6 +223,7 @@ class ChatFinal(Model):
     citation_ok: bool
     flags: list[str] = Field(default_factory=list)
     memory_candidates: list[MemoryCandidate] = Field(default_factory=list)
+    excluded_docs: list[str] = Field(default_factory=list)  # vault paths left out: signature check failed
 
 
 class ChatResult(ChatFinal):
@@ -243,6 +244,7 @@ class ChatTokenData(Model):
 class ChatDoneData(Model):
     latency_ms: int
     first_token_ms: int
+    prompt_tokens: int | None = None  # Ollama prompt_eval_count; null when the model was not called
 
 
 class ChatErrorData(Model):
@@ -661,13 +663,15 @@ class OutboxItem(Model):
 
 
 class Health(Model):
-    """GET /api/health. `models` maps role (llm, fast, embed) -> configured name; `model_loaded` -> resident now."""
+    """GET /api/health. `models` maps role (llm, fast, embed) -> configured name; `model_loaded` -> resident now.
+    `local_inference`: OLLAMA_URL's host is loopback (models run on this machine)."""
 
     ollama: bool
     models: dict[str, str]
     model_loaded: dict[str, bool]
     db: bool
     vault_dir: str
+    local_inference: bool
 
 
 # ---------------------------------------------------------------------------

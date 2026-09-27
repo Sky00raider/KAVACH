@@ -7,6 +7,7 @@ Run with `--no-proxy-headers` (or `python -m kavach.api`) so uvicorn never rewri
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -16,6 +17,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile
@@ -188,12 +190,24 @@ def _ollama_status() -> tuple[bool, set[str]]:
     return True, {_full_name(m.get("name") or m.get("model") or "") for m in ps.get("models", [])}
 
 
+def local_inference(url: str | None = None) -> bool:
+    """OLLAMA_URL's host is loopback (`localhost` or a loopback address): the models run on this machine."""
+    host = urlsplit(url or config.OLLAMA_URL).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 @owner.get("/health")
 def health() -> Health:
     reachable, loaded = _ollama_status()
     models = {"llm": config.LLM_MODEL, "fast": config.FAST_MODEL, "embed": config.EMBED_MODEL}
     return Health(ollama=reachable, models=models, db=db.ping(), vault_dir=str(config.VAULT_DIR),
-                  model_loaded={role: _full_name(name) in loaded for role, name in models.items()})
+                  model_loaded={role: _full_name(name) in loaded for role, name in models.items()},
+                  local_inference=local_inference())
 
 
 def safe_upload_name(raw: str | None) -> str:
