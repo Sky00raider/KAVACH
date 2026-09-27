@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react"
 import { Link2, Link2Off, Search } from "lucide-react"
-import { api, type AuditEntry } from "@/api/client"
+import { api, type AuditEntry, type Document, type Task } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
 import { Input } from "@/components/ui/input"
@@ -26,8 +26,38 @@ function tone(event: string): string {
   return TONE.muted
 }
 
+const LOOKUP_MS = 10_000
+const LABELLED_KEYS = new Set(["doc_id", "requester_fp", "request_id", "task_id"])
+
+function short(text: string, max = 60): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() || path
+}
+
+/** id -> human label: file names for d_…, questions for rq_…, instructions for t_…, names for requester keys. */
+function buildLabels(entries: AuditEntry[], docs: Document[], tasks: Task[]): Map<string, string> {
+  const labels = new Map<string, string>()
+  for (const d of docs) labels.set(d.doc_id, basename(d.path))
+  for (const t of tasks) labels.set(t.task_id, `task: ${short(t.instruction)}`)
+  for (const e of entries) {
+    const d = e.detail as Record<string, unknown>
+    if (typeof d.path === "string" && typeof d.doc_id === "string") labels.set(d.doc_id, basename(d.path))
+    if (e.event === "request_received" && e.ref_id && typeof d.question === "string")
+      labels.set(e.ref_id, `“${short(d.question)}”`)
+    if (e.event.startsWith("requester_") && e.ref_id && typeof d.name === "string") labels.set(e.ref_id, d.name)
+  }
+  return labels
+}
+
 export default function Audit() {
   const { data, error } = usePoll(() => api.audit(500), AUDIT_MS)
+  const docs = usePoll(api.documents, LOOKUP_MS)
+  const tasks = usePoll(api.tasks, LOOKUP_MS)
+  const labels = useMemo(() => buildLabels(data?.entries ?? [], docs.data ?? [], tasks.data ?? []),
+    [data, docs.data, tasks.data])
   const [group, setGroup] = useState<Group>("all")
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState<number | null>(null)
@@ -35,8 +65,9 @@ export default function Audit() {
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
     return (data?.entries ?? []).filter((e) => GROUPS[group](e.event) &&
-      (!q || `${e.event} ${e.ref_id ?? ""} ${JSON.stringify(e.detail)}`.toLowerCase().includes(q)))
-  }, [data, group, query])
+      (!q || `${e.event} ${e.ref_id ?? ""} ${labels.get(e.ref_id ?? "") ?? ""} ${JSON.stringify(e.detail)}`
+        .toLowerCase().includes(q)))
+  }, [data, group, query, labels])
 
   return (
     <Page
@@ -86,8 +117,12 @@ export default function Audit() {
                     <span className={cn("rounded-full border px-2 py-0.5 text-xs", tone(e.event))}>{e.event}</span>
                   </TableCell>
                   <TableCell className="max-w-0 truncate font-mono text-xs text-muted-foreground">
-                    {e.ref_id && <span className="mr-2 text-foreground">{e.ref_id}</span>}
-                    {summary(e)}
+                    {e.ref_id && (
+                      <span className="mr-2 font-sans font-medium text-foreground" title={e.ref_id}>
+                        {labels.get(e.ref_id) ?? e.ref_id}
+                      </span>
+                    )}
+                    {summary(e, labels)}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs text-muted-foreground">{e.entry_hash.slice(0, 10)}</TableCell>
                 </TableRow>
@@ -114,9 +149,14 @@ export default function Audit() {
   )
 }
 
-function summary(e: AuditEntry): string {
+/** detail as key=value, with ids swapped for labels and the path / id already shown in the reference column left out. */
+function summary(e: AuditEntry, labels: Map<string, string>): string {
   return Object.entries(e.detail)
-    .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .filter(([k, v]) => !(k === "path" && e.ref_id && labels.has(e.ref_id)) && !(k === "doc_id" && v === e.ref_id))
+    .map(([k, v]) => {
+      const shown = typeof v === "string" && LABELLED_KEYS.has(k) ? (labels.get(v) ?? v) : v
+      return `${k.replace(/_fp$|_id$/, "")}=${typeof shown === "string" ? shown : JSON.stringify(shown)}`
+    })
     .join("  ")
 }
 

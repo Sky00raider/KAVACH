@@ -40,7 +40,7 @@ PROFILE: dict[str, Any] = {
     "employer": "Nimbus Analytics Pvt Ltd",
     "monthly_income": 62000,
     "loan_default_12m": False,
-    "landlord": "Ramesh Kumar",
+    "landlord": "Ravi Kumar",
     "rent_amount": 14500,
     "date_of_birth": "2003-05-14",
     "id_number": "XXXX-XXXX-7310",

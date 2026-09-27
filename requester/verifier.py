@@ -50,6 +50,12 @@ def _parse_time(s: str) -> datetime:
     return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
 
+def readable(iso: str) -> str:
+    """"2027-03-26T09:27:50Z" -> "26 Mar 2027"."""
+    d = _parse_time(iso)
+    return f"{d.day} {d:%b %Y}"
+
+
 def _failed(answer_type: AnswerType, claim: str, names: tuple[str, ...], detail: str) -> VerifierOutput:
     return VerifierOutput(answer_type=answer_type, claim=claim, result=None, all_ok=False,
                           checks=[VerifierCheck(name=n, ok=False, detail=detail) for n in names])
@@ -93,7 +99,7 @@ def _verify_presentation(payload: dict[str, Any], nonce: str, aud: str, now: dat
 
     try:
         ok = _parse_time(cred["exp"]) > now
-        detail = f"valid until {cred['exp']}" if ok else f"expired {cred['exp']}"
+        detail = f"valid until {readable(cred['exp'])}" if ok else f"expired on {readable(cred['exp'])}"
     except ValueError:
         ok, detail = False, "bad expiry"
     checks.append(VerifierCheck(name="Not expired", ok=ok, detail=detail))
@@ -124,7 +130,7 @@ def _verify_attestation(payload: dict[str, Any], nonce: str, aud: str, pinned: s
         "made for this request, to me" if ok else "replayed or addressed to someone else")))
     try:
         ok = _parse_time(payload["exp"]) > now
-        detail = f"valid until {payload['exp']}" if ok else f"expired {payload['exp']}"
+        detail = f"valid until {readable(payload['exp'])}" if ok else f"expired on {readable(payload['exp'])}"
     except ValueError:
         ok, detail = False, "bad expiry"
     checks.append(VerifierCheck(name="Not expired", ok=ok, detail=detail))

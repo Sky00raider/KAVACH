@@ -26,8 +26,8 @@ from requester import verifier
 
 DATA_DIR = Path(os.environ.get("REQUESTER_DATA_DIR", Path(__file__).resolve().parent / "data")).resolve()
 ROLES = {
-    "web": (os.environ.get("REQUESTER_NAME", "Ramesh Kumar"), os.environ.get("REQUESTER_TYPE", "landlord")),
-    "agent": (os.environ.get("REQUESTER_AGENT_NAME", "Ramesh Kumar's rental agent"),
+    "web": (os.environ.get("REQUESTER_NAME", "Ravi Kumar"), os.environ.get("REQUESTER_TYPE", "landlord")),
+    "agent": (os.environ.get("REQUESTER_AGENT_NAME", "Ravi Kumar's rental agent"),
               os.environ.get("REQUESTER_AGENT_TYPE", "landlord_agent")),
 }
 _REQUESTS = TypeAdapter(list[RRequest])
