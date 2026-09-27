@@ -10,6 +10,8 @@ is plain code over the finished text.
 
 `citation_ok` (CONTRACT §10): false when any `[n]` is not a supplied chunk or the answer has no citation.
 `flags` (CONTRACT §10):
+- `tampered_source_excluded`: a document with signature_status `invalid` would have been selected; its chunks are
+  never used and its path is listed in `excluded_docs`.
 - `no_context`: search returned no chunks; the model is not called and the answer is the fixed NOT_IN_VAULT.
 - `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored).
 - `no_citation`: the answer has no `[n]` and is not a `not_in_vault` answer.
@@ -25,6 +27,7 @@ import time
 from collections import Counter
 from collections.abc import Iterator
 
+from kavach import db
 from kavach.brain import embed, llm
 from kavach.models import (
     ChatDoneData,
@@ -105,18 +108,28 @@ def estimate_tokens(text: str) -> int:
     return sum(1 if len(m) == 1 else -(-len(m) // _LETTERS_PER_TOKEN) for m in _TOKEN_EST.findall(text))
 
 
-def retrieve(question: str) -> list[ScoredChunk]:
-    """Up to TOP_K search hits, best first: at most MAX_PER_DOC per document, and hits below MIN_SCORE only
-    while fewer than MIN_CHUNKS are kept."""
+def _select(ranked: list[ScoredChunk]) -> list[ScoredChunk]:
+    """Up to TOP_K hits, best first: at most MAX_PER_DOC per document, and hits below MIN_SCORE only while
+    fewer than MIN_CHUNKS are kept."""
     picked: list[ScoredChunk] = []
     per_doc: Counter[str] = Counter()
-    for chunk in embed.search(question, k=SEARCH_K):
+    for chunk in ranked:
         if len(picked) == TOP_K or (chunk.score < MIN_SCORE and len(picked) >= MIN_CHUNKS):
             break
         if per_doc[chunk.doc_id] < MAX_PER_DOC:
             picked.append(chunk)
             per_doc[chunk.doc_id] += 1
     return picked
+
+
+def retrieve(question: str) -> tuple[list[ScoredChunk], list[str]]:
+    """(chunks for the prompt, excluded_docs). Documents whose signature check failed are never used; their
+    paths are reported when they would otherwise have been selected (CONTRACT §10)."""
+    ranked = embed.search(question, k=SEARCH_K)
+    docs = db.document_status(c.doc_id for c in ranked)
+    invalid = {d for d, row in docs.items() if row["signature_status"] == "invalid"}
+    excluded = list(dict.fromkeys(docs[c.doc_id]["path"] for c in _select(ranked) if c.doc_id in invalid))
+    return _select([c for c in ranked if c.doc_id not in invalid]), excluded
 
 
 def _history(history: list[ChatTurn]) -> list[dict]:
@@ -214,7 +227,8 @@ def check(answer: str, refs: list[ChunkRef], chunks: list[ScoredChunk]) -> ChatF
 def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]:
     """§10 events: meta, token..., final, done. An LLMError mid-stream propagates (api.sse reports it)."""
     start = time.perf_counter()
-    history_msgs, chunks = fit_context(_history(history), retrieve(question))
+    chunks, excluded = retrieve(question)
+    history_msgs, chunks = fit_context(_history(history), chunks)
     refs = [ChunkRef(n=n, chunk_id=c.chunk_id, doc_id=c.doc_id, locator=c.locator) for n, c in enumerate(chunks, 1)]
     yield ChatMetaEvent(data=ChatMetaData(entities_used=[], chunks=refs))
 
@@ -232,6 +246,9 @@ def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]
             pieces.append(piece)
             yield ChatTokenEvent(data=ChatTokenData(text=piece))
         final = check("".join(pieces), refs, chunks)
+    if excluded:
+        final.flags.insert(0, "tampered_source_excluded")
+        final.excluded_docs = excluded
 
     yield ChatFinalEvent(data=final)
     latency_ms = int((time.perf_counter() - start) * 1000)

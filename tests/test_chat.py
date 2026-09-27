@@ -18,7 +18,7 @@ LANDLORD = ScoredChunk(chunk_id="c_land000001", doc_id="d_land000001", locator="
 
 
 @pytest.fixture
-def fake(monkeypatch):
+def fake(fresh_db, monkeypatch):
     """Search returns `state.chunks`; the model streams `state.reply` in small pieces and records the prompt."""
     state = SimpleNamespace(chunks=[RENT, LANDLORD], reply="", messages=None, calls=0, fail_after=None)
 
@@ -164,6 +164,42 @@ def test_retrieval_caps_per_document_k_and_score_floor(fake):
 
     fake.chunks = [_chunk(1, "d_a", 1.0), _chunk(2, "d_b", 0.1), _chunk(3, "d_c", 0.05)]
     assert [r.chunk_id for r in _final()[0][0].data.chunks] == ["c_1", "c_2"]  # at least 2 even below 0.3
+
+
+def _doc(doc_id, path, status):
+    from kavach import db
+    db.insert("documents", {"doc_id": doc_id, "path": path, "source": "pdf", "signature_status": status,
+                            "ingested_at": "2026-09-27T10:00:00Z"})
+
+
+def test_invalid_signature_documents_are_excluded_and_reported(fake):
+    _doc("d_bad", "pdfs/bank_statement_TAMPERED.pdf", "invalid")
+    _doc("d_good", "pdfs/bank_statement_signed.pdf", "issuer_signed")
+    fake.chunks = [_chunk(1, "d_bad", 0.95), _chunk(2, "d_good", 0.9), _chunk(3, "d_bad", 0.9), _chunk(4, "d_x", 0.5)]
+    fake.reply = "Your salary was 62,000 [1]."
+    events, final = _final()
+    assert [r.chunk_id for r in events[0].data.chunks] == ["c_2", "c_4"]
+    assert "d_bad" not in fake.messages[-1]["content"] and "chunk 1." not in fake.messages[-1]["content"]
+    assert final.flags == ["tampered_source_excluded"] and final.citation_ok
+    assert final.excluded_docs == ["pdfs/bank_statement_TAMPERED.pdf"]
+    assert chat.answer("salary?", []).excluded_docs == ["pdfs/bank_statement_TAMPERED.pdf"]
+
+
+def test_invalid_document_outside_the_selection_is_not_reported(fake):
+    _doc("d_bad", "pdfs/bank_statement_TAMPERED.pdf", "invalid")
+    fake.chunks = [_chunk(i, f"d_{i}", 1.0 - i / 100) for i in range(1, 7)] + [_chunk(7, "d_bad", 0.9)]
+    fake.reply = "x [1]."
+    final = _final()[1]
+    assert final.flags == [] and final.excluded_docs == []
+
+
+def test_only_tampered_sources_means_no_context(fake):
+    _doc("d_bad", "pdfs/bank_statement_TAMPERED.pdf", "invalid")
+    fake.chunks = [_chunk(1, "d_bad", 1.0), _chunk(2, "d_bad", 0.8)]
+    events, final = _final()
+    assert fake.calls == 0 and events[0].data.chunks == []
+    assert final.flags == ["tampered_source_excluded", "no_context", "not_in_vault"]
+    assert final.excluded_docs == ["pdfs/bank_statement_TAMPERED.pdf"]
 
 
 def test_model_text_collapses_tables_but_quotes_use_stored_text(fake):

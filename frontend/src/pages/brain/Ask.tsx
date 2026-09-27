@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
-import { AlertTriangle, ArrowUp, FileUp, Info, Laptop, RotateCcw, Server, Sparkles, Square, SquarePen } from "lucide-react"
+import {
+  AlertTriangle,
+  ArrowUp,
+  FileUp,
+  Info,
+  Laptop,
+  RotateCcw,
+  Server,
+  ShieldAlert,
+  Sparkles,
+  Square,
+  SquarePen,
+} from "lucide-react"
 import { api, chatStream, type Document } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
@@ -9,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/components/lib/utils"
 import {
   answerBlocks,
+  basename,
   buildHistory,
   flagView,
   footerText,
@@ -89,6 +102,7 @@ function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry
   const blocks = useMemo(() => answerBlocks(turn.text, turn.final?.flags), [turn.text, turn.final])
   const cited = turn.final ? new Set(turn.final.citations.map((c) => c.n)) : undefined
   const chunks = turn.meta?.chunks ?? []
+  const excluded = turn.final?.excluded_docs ?? []
   const waiting = turn.phase === "searching" || turn.phase === "reading"
   const partlyAnswered = notice === "not_in_vault" && (turn.final?.citations.length ?? 0) > 0
   const footer = footerText(turn)
@@ -116,6 +130,17 @@ function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry
 
         {chunks.length > 0 && <SourcesRow sources={chunks.map((c) => sources.get(c.n) ?? c)} docs={docs} cited={cited} />}
 
+        {excluded.length > 0 && (
+          <ul className="space-y-1">
+            {excluded.map((path) => (
+              <li key={path} title={path} className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+                <ShieldAlert className="size-3.5 shrink-0" />
+                Ignored {basename(path)}: signature check failed
+              </li>
+            ))}
+          </ul>
+        )}
+
         {turn.phase === "reading" && (
           <div className="space-y-2 pt-1" aria-hidden>
             <div className="h-3 w-11/12 animate-pulse rounded bg-muted" />
@@ -139,7 +164,9 @@ function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry
         {notice && (
           <p className="text-xs text-muted-foreground">
             {notice === "no_context"
-              ? "Nothing in your vault matched this question. KAVACH answers only from your files, so it did not guess."
+              ? excluded.length > 0
+                ? "The only matching files failed their signature check, so KAVACH did not use them or guess."
+                : "Nothing in your vault matched this question. KAVACH answers only from your files, so it did not guess."
               : partlyAnswered
                 ? "Part of this question isn't covered by your vault; that part was left unanswered."
                 : "KAVACH answers only from your files, so it did not guess."}

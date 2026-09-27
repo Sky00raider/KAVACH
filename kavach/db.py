@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -160,6 +160,16 @@ _DOC_COLS = ("doc_id", "path", "source", "doc_type", "signature_status", "iss", 
 def get_document_by_path(path: str) -> dict[str, Any] | None:
     """The documents row for a vault-relative path, removed or not."""
     return fetch_one("SELECT * FROM documents WHERE path = ?", (path,))
+
+
+def document_status(doc_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """{doc_id: {path, signature_status}} for the given ids (unknown ids are absent)."""
+    ids = list(dict.fromkeys(doc_ids))
+    if not ids:
+        return {}
+    rows = fetch_all(f"SELECT doc_id, path, signature_status FROM documents WHERE doc_id IN "
+                     f"({', '.join('?' * len(ids))})", tuple(ids))
+    return {r["doc_id"]: r for r in rows}
 
 
 def _close_document_knowledge(conn: sqlite3.Connection, doc_id: str, closed_on: str) -> None:
