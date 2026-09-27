@@ -21,6 +21,8 @@ from kavach.models import AskAck, AskIn, AskResult, Claim, Proposal, RejectReaso
 from kavach.trust import audit, crypto, ledger, pairing, present, wallet
 
 TS_WINDOW_S = 120
+MAX_NONCE = 128
+MAX_QUESTION = 2000
 _decide_lock = threading.Lock()
 
 
@@ -70,6 +72,8 @@ def _finish(request_id: str, answer_type: str, payload: dict | None = None) -> N
 
 
 def receive(req: AskIn, channel: str) -> AskAck:
+    if not 1 <= len(req.nonce) <= MAX_NONCE or len(req.question) > MAX_QUESTION or len(req.sig) > 200:
+        raise _reject("malformed", None, channel=channel, error_type="field_length")
     try:
         fp = crypto.fingerprint(req.requester_pubkey)
     except ValueError:

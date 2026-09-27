@@ -60,6 +60,14 @@ def test_bad_sig_stale_ts_nonce_reuse_and_blocked(owner, lan):
     assert _reasons() == ["bad_sig", "stale_ts", "nonce_reuse", "bad_sig", "unknown_requester_blocked"]
 
 
+def test_oversized_fields_are_rejected_as_malformed(owner, lan):
+    priv = crypto.new_private_key()
+    assert lan.post("/api/ask", json=_ask(priv, nonce="x" * 129)).status_code == 422
+    assert lan.post("/api/ask", json=_ask(priv, question="q" * 2001)).status_code == 422
+    assert _reasons() == ["malformed", "malformed"]
+    assert db.fetch_one("SELECT COUNT(*) AS n FROM requests")["n"] == 0
+
+
 def test_unpaired_requester_never_gets_an_answer(owner, lan):
     priv = crypto.new_private_key()
     rid = lan.post("/api/ask", json=_ask(priv)).json()["request_id"]
