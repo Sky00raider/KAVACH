@@ -246,6 +246,16 @@ def entities_by_norm(norm_names: Iterable[str]) -> list[dict[str, Any]]:
                      tuple(names))
 
 
+def entity_types(entity_ids: Iterable[str]) -> dict[str, str]:
+    """entity_id -> type for the given ids that exist."""
+    ids = list(dict.fromkeys(entity_ids))
+    if not ids:
+        return {}
+    rows = fetch_all(f"SELECT entity_id, type FROM entities WHERE entity_id IN ({', '.join('?' * len(ids))})",
+                     tuple(ids))
+    return {r["entity_id"]: r["type"] for r in rows}
+
+
 def entity_index() -> list[dict[str, Any]]:
     """entity_id, type, name, norm_name of every entity, oldest first (question matching in chat)."""
     return fetch_all("SELECT entity_id, type, name, norm_name FROM entities ORDER BY rowid")

@@ -170,11 +170,11 @@ def test_ground_relations_resolve_names_and_the_owner():
                               {"src": "Ravi", "rel": "RELATES_TO", "dst": "Ravi"},             # self
                               {"src": "Ravi", "rel": "MENTIONED_IN", "dst": "Flat move 2026"},  # links only
                               {"src": "I", "rel": "DECIDED", "dst": "Flat move 2026"},         # code only
-                              {"src": "Ravi", "rel": "PART_OF", "dst": "Flat move 2026"}]),
+                              {"src": "Ravi", "rel": "WORKS_ON", "dst": "Flat move 2026"},     # not one sentence
+                              {"src": "Ravi", "rel": "PART_OF", "dst": "Flat move 2026"}]),   # PERSON PART_OF
                  DECISION_TEXT)
-    assert g.relations == [("ravi", "LANDLORD_OF", E.OWNER, None), (E.OWNER, "WORKS_ON", "flat move 2026", None),
-                           ("ravi", "PART_OF", "flat move 2026", None)]
-    assert g.relations_dropped == 5
+    assert g.relations == [("ravi", "LANDLORD_OF", E.OWNER, None), (E.OWNER, "WORKS_ON", "flat move 2026", None)]
+    assert g.relations_dropped == 7
 
 
 # --- graph writes through ingest ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ def test_same_person_across_notes_merges_attrs_and_keeps_the_first_type(vault, e
     first = ingest.ingest_file(_write(vault.root, "notes/a.md", "My landlord is Mr. Ravi, 98450 12345."))
     second = ingest.ingest_file(_write(vault.root, "notes/b.md", "Ravi's email is ravi@example.com, 11111 22222."))
     ravi = _by_name("Ravi")
-    assert (ravi["name"], ravi["type"]) == ("Mr. Ravi", "PERSON")
+    assert (ravi["name"], ravi["type"]) == ("Ravi", "PERSON")  # the variant without an honorific is shown
     assert json.loads(ravi["attrs_json"]) == {"phone": "98450 12345", "email": "ravi@example.com"}  # first value wins
     assert first.entities_added == 2 and second.entities_added == 1  # Ravi + a DOCUMENT, then only b's DOCUMENT
 
@@ -228,7 +228,7 @@ def test_links_become_mentioned_in_edges_to_the_note(vault, extractor):
 def test_first_name_person_merges_into_the_full_name(vault, extractor, order):
     extractor.table["Talk to Ravi"] = X(people=["Ravi"], projects=["Flat move 2026"],
                                         contacts=[{"name": "Ravi", "phone": "98450 12345"}],
-                                        relations=[{"src": "Ravi", "rel": "PART_OF", "dst": "Flat move 2026"}])
+                                        relations=[{"src": "Ravi", "rel": "WORKS_ON", "dst": "Flat move 2026"}])
     extractor.table["Ravi Kumar"] = X(people=["Ravi Kumar", "Ravi"], contacts=[{"name": "Ravi Kumar",
                                                                                "email": "ravi@example.com"}],
                                       relations=[{"src": "Ravi Kumar", "rel": "LANDLORD_OF", "dst": "I"},
@@ -244,7 +244,7 @@ def test_first_name_person_merges_into_the_full_name(vault, extractor, order):
     assert json.loads(kumar["attrs_json"]) == {"phone": "98450 12345", "email": "ravi@example.com"}
     flat = next(r for r in _entities() if r["type"] == "PROJECT")
     assert {(e["src"], e["rel"], e["dst"]) for e in _edges() if e["rel"] != "MENTIONED_IN"} == {
-        (kumar["entity_id"], "PART_OF", flat["entity_id"]), (kumar["entity_id"], "LANDLORD_OF", OWNER_ENTITY_ID)}
+        (kumar["entity_id"], "WORKS_ON", flat["entity_id"]), (kumar["entity_id"], "LANDLORD_OF", OWNER_ENTITY_ID)}
     assert not [e for e in _edges() if e["src"] == e["dst"]]  # "Ravi RELATES_TO Ravi Kumar" became a loop: closed
     assert sum(added) == len(_entities()) - 1  # net growth, the owner row aside
 
@@ -260,6 +260,170 @@ def test_first_name_merge_needs_exactly_one_candidate_and_never_the_owner(fresh_
     E.upsert("PERSON", "Sita Rao")  # only a PERSON is folded
     assert E.merge_first_names() == 0
     assert {r["entity_id"] for r in _entities()} >= {ravi, "e_ananya0001", sita, OWNER_ENTITY_ID}
+
+
+# --- graph cleanup: role words, display names, company suffixes, relation grounding, contact lines ---------
+
+STATEMENT = ("Statement of Account Mock Bank of India Account holder: Ananya Iyer Date Description Debit Credit "
+             "2026-06-01 SALARY CREDIT Nimbus Analytics Pvt L 62,000.00 80,250.00 2026-06-05 UPI/RENT/RAVI KUMAR "
+             "14,500.00 65,750.00")
+
+
+def test_role_words_are_not_entities():
+    for name in ("Landlord", "the landlord", "My Employer", "bank", "Tenant", "account holder"):
+        assert E.is_role_word(name), name
+    for name in ("Ravi Kumar", "Mock Bank", "Landlord Kumar"):
+        assert not E.is_role_word(name), name
+    text = "Tenant: Ananya Iyer. Landlord: Ravi Kumar. My bank is Mock Bank. Landlord notes."
+    g = E.ground(X(people=["Landlord", "Tenant", "Ravi Kumar"], organisations=["Bank", "Mock Bank"],
+                   documents=["Landlord"]), text)
+    assert {k: v["type"] for k, v in g.entities.items()} == {
+        "ravi kumar": "PERSON", "mock bank": "ORG", "landlord": "DOCUMENT"}  # a note may be called Landlord
+    assert [r for _, r in g.dropped] == ["role word, not a name"] * 3
+
+
+def test_a_role_next_to_a_name_becomes_the_relation():
+    cases = [
+        ("The landlord is Ravi Kumar.", X(people=["Ravi Kumar"]), ("ravi kumar", "LANDLORD_OF", E.OWNER)),
+        ("Landlord: Ravi Kumar Property: Flat 402", X(people=["Ravi Kumar"]), ("ravi kumar", "LANDLORD_OF", E.OWNER)),
+        ("My landlord Ravi lives upstairs.", X(people=["Ravi"]), ("ravi", "LANDLORD_OF", E.OWNER)),
+        ("My employer is Nimbus Analytics Pvt Ltd.", X(organisations=["Nimbus Analytics Pvt Ltd"]),
+         (E.OWNER, "EMPLOYED_BY", "nimbus analytics")),
+        ("Bank: Mock Bank of India", X(organisations=["Mock Bank of India"]), (E.OWNER, "BANKS_WITH", "mock bank of india")),
+    ]
+    for text, x, want in cases:
+        assert [r[:3] for r in E.ground(x, text).relations] == [want], text
+    none = [
+        ("Tenant: Priya Landlord: Ravi Kumar", X(people=["Priya"])),        # the name must follow the role
+        ("Landlord email: ravi@example.com", X(people=["Ravi"])),           # role and name in different places
+        ("The landlord is Mock Bank.", X(organisations=["Mock Bank"])),    # LANDLORD_OF needs a PERSON
+        ("The landlord.\nRavi Kumar called.", X(people=["Ravi Kumar"])),    # not one line
+    ]
+    for text, x in none:
+        assert E.ground(x, text).relations == [], text
+
+
+def test_display_names():
+    assert E.display_name("PERSON", "RAVI KUMAR") == "Ravi Kumar"
+    assert E.display_name("PERSON", "D'SOUZA  ANIL") == "D'Souza Anil"
+    assert E.display_name("ORG", "NIMBUS ANALYTICS PVT LTD") == "Nimbus Analytics Pvt Ltd"
+    assert E.display_name("ORG", "HDFC BANK") == "HDFC Bank"
+    assert E.display_name("ORG", "SBI") == "SBI"
+    assert E.display_name("ORG", "Nimbus Analytics Pvt L") == "Nimbus Analytics"
+    assert E.display_name("ORG", "Nimbus Analytics Pvt") == "Nimbus Analytics"
+    assert E.display_name("ORG", "Nimbus Analytics Pvt Ltd") == "Nimbus Analytics Pvt Ltd"
+    assert E.display_name("CONCEPT", "EMI") == "EMI"
+    assert E.display_name("PERSON", "Ravi kumar") == "Ravi kumar"   # not all caps: left as written
+    assert E.display_name("DECISION", "I WILL RENEW IF RENT STAYS LOW") == "I WILL RENEW IF RENT STAYS LOW"
+    assert E.better_name("RAVI KUMAR", "Ravi Kumar") == "Ravi Kumar"
+    assert E.better_name("Ravi Kumar", "RAVI KUMAR") == "Ravi Kumar"
+    assert E.better_name("rent renewal", "Rent renewal") == "Rent renewal"
+    assert E.better_name("Mr. Ravi", "Ravi") == "Ravi"
+    assert E.better_name("Nimbus Analytics", "Nimbus Analytics Pvt Ltd") == "Nimbus Analytics Pvt Ltd"
+
+
+def test_company_suffixes_match_for_dedupe():
+    for name in ("Nimbus Analytics Pvt L", "Nimbus Analytics Pvt. Ltd.", "NIMBUS ANALYTICS PRIVATE LIMITED",
+                 "Nimbus Analytics Ltd", "Nimbus Analytics (P) Ltd", "Nimbus Analytics LLP"):
+        assert E.normalise_name(name) == "nimbus analytics", name
+    assert E.normalise_name("Mock Bank of India") == "mock bank of india"
+    assert E.normalise_name("Ltd") == "ltd"
+    g = E.ground(X(organisations=["Nimbus Analytics Pvt L"]), STATEMENT)
+    assert g.entities["nimbus analytics"]["name"] == "Nimbus Analytics"
+
+
+@pytest.mark.parametrize("order", ["caps first", "cased first"])
+def test_variants_merge_into_the_best_display_name(fresh_db, order):
+    E.ensure_owner()
+    people = ["RAVI KUMAR", "Ravi Kumar"] if order == "caps first" else ["Ravi Kumar", "RAVI KUMAR"]
+    orgs = ["Nimbus Analytics", "Nimbus Analytics Pvt Ltd"] if order == "caps first" else \
+        ["Nimbus Analytics Pvt Ltd", "Nimbus Analytics"]
+    ids = {E.upsert("PERSON", n)[0] for n in people} | {E.upsert("ORG", n)[0] for n in orgs}
+    assert len(ids) == 2
+    assert sorted(r["name"] for r in _entities() if r["entity_id"] != OWNER_ENTITY_ID) == [
+        "Nimbus Analytics Pvt Ltd", "Ravi Kumar"]
+
+
+def test_statement_caps_and_note_name_are_one_person_named_properly(vault, extractor):
+    extractor.table["UPI/RENT"] = X(people=["RAVI KUMAR"], organisations=["Nimbus Analytics Pvt L"])
+    extractor.table["landlord is"] = X(people=["Ravi Kumar"])
+    pdf = vault.root / "pdfs" / "statement.pdf"
+    _make_pdf(pdf, [STATEMENT])
+    ingest.ingest_file(pdf)
+    ingest.ingest_file(_write(vault.root, "notes/landlord.md", "The landlord is Ravi Kumar."))
+    kumar = _by_name("Ravi Kumar")
+    assert (kumar["name"], kumar["type"]) == ("Ravi Kumar", "PERSON")
+    assert _by_name("Nimbus Analytics Pvt Ltd")["name"] == "Nimbus Analytics"
+    assert [(e["src"], e["rel"], e["dst"]) for e in _edges() if e["rel"] == "LANDLORD_OF"] == [
+        (kumar["entity_id"], "LANDLORD_OF", OWNER_ENTITY_ID)]
+
+
+def test_segments_split_lines_sentences_and_dated_rows():
+    assert E.segments("Mr. Ravi called. He said Rs. 500 is due!\nNext line; more") == [
+        " mr ravi called ", " he said rs 500 is due ", " next line ", " more "]
+    rows = E.segments(STATEMENT)
+    assert " 2026 06 01 salary credit nimbus analytics pvt l 62 000 00 80 250 00 " in rows
+    assert " 2026 06 05 upi rent ravi kumar 14 500 00 65 750 00 " in rows
+    chat = E.segments("18/09/26, 19:42 - Ananya: Hi Ravi 18/09/26, 19:44 - Ravi Kumar: Yes")
+    assert chat == [" 18 09 26 19 42 ananya hi ravi ", " 18 09 26 19 44 ravi kumar yes "]
+
+
+def test_relation_needs_both_names_in_one_line_or_sentence():
+    x = X(people=["RAVI KUMAR"], organisations=["Nimbus Analytics Pvt L"],
+          relations=[{"src": "RAVI KUMAR", "rel": "STUDIED_AT", "dst": "Nimbus Analytics Pvt L"},   # other row
+                     {"src": "I", "rel": "EMPLOYED_BY", "dst": "Nimbus Analytics Pvt L"},          # owner implicit
+                     {"src": "I", "rel": "PAID", "dst": "RAVI KUMAR"}])
+    g = E.ground(x, STATEMENT)
+    assert [r[:3] for r in g.relations] == [(E.OWNER, "EMPLOYED_BY", "nimbus analytics"), (E.OWNER, "PAID", "ravi kumar")]
+    assert g.relations_dropped == 1
+    one_line = "2026-06-01 SALARY CREDIT Nimbus Analytics Pvt L RAVI KUMAR"
+    assert [r[1] for r in E.ground(x, one_line).relations][0] == "STUDIED_AT"   # same row: type-valid, kept
+
+
+def test_relation_types_follow_the_domain_range_table():
+    ok = [("LANDLORD_OF", "PERSON", "PERSON"), ("EMPLOYED_BY", "PERSON", "ORG"), ("STUDIED_AT", "PERSON", "ORG"),
+          ("BANKS_WITH", "PERSON", "ORG"), ("WORKS_ON", "PERSON", "PROJECT"), ("PART_OF", "CONCEPT", "PROJECT"),
+          ("PART_OF", "DECISION", "PROJECT"), ("ABOUT", "DECISION", "CONCEPT"), ("PAID", "PERSON", "OBLIGATION"),
+          ("PARTY_TO", "PERSON", "DOCUMENT"), ("DUE_ON", "OBLIGATION", "EVENT"), ("RELATES_TO", "PLACE", "PERSON"),
+          ("MENTIONED_IN", "PERSON", "DOCUMENT"), ("DECIDED", "PERSON", "DECISION")]
+    bad = [("LANDLORD_OF", "PERSON", "PROJECT"), ("LANDLORD_OF", "PERSON", "PLACE"), ("STUDIED_AT", "ORG", "PERSON"),
+           ("EMPLOYED_BY", "PERSON", "PERSON"), ("PART_OF", "PERSON", "CONCEPT"), ("PART_OF", "PROJECT", "DOCUMENT"),
+           ("ABOUT", "PLACE", "PERSON"), ("MENTIONED_IN", "PERSON", "PROJECT"), ("WORKS_ON", "PERSON", "CONCEPT")]
+    assert all(E.relation_allowed(*r) for r in ok)
+    assert not any(E.relation_allowed(*r) for r in bad)
+    text = "Ravi Kumar, Flat 402, Flat move 2026 and flat agreement, all in one line."
+    x = X(people=["Ravi Kumar"], places=["Flat 402"], projects=["Flat move 2026"], topics=["flat agreement"],
+          relations=[{"src": "Ravi Kumar", "rel": "LANDLORD_OF", "dst": "Flat move 2026"},
+                     {"src": "I", "rel": "LANDLORD_OF", "dst": "Flat 402"},
+                     {"src": "Ravi Kumar", "rel": "PART_OF", "dst": "flat agreement"},
+                     {"src": "Flat 402", "rel": "ABOUT", "dst": "Ravi Kumar"},
+                     {"src": "flat agreement", "rel": "PART_OF", "dst": "Flat move 2026"}])
+    g = E.ground(x, text)
+    assert [r[:3] for r in g.relations] == [("flat agreement", "PART_OF", "flat move 2026")]
+    assert g.relations_dropped == 4
+
+
+def test_stored_type_is_checked_again_after_dedupe(vault, extractor):
+    extractor.table["topic"] = X(topics=["Mock Bank"])               # stored first as a CONCEPT
+    extractor.table["account"] = X(organisations=["Mock Bank"],
+                                   relations=[{"src": "I", "rel": "BANKS_WITH", "dst": "Mock Bank"}])
+    ingest.ingest_file(_write(vault.root, "notes/a.md", "A topic: Mock Bank."))
+    ingest.ingest_file(_write(vault.root, "notes/b.md", "My account is at Mock Bank."))
+    assert _by_name("Mock Bank")["type"] == "CONCEPT"
+    assert not [e for e in _edges() if e["rel"] == "BANKS_WITH"]   # BANKS_WITH needs an ORG
+
+
+def test_decision_quote_is_never_a_contact_line():
+    text = ("22/09/26, 20:08 - Ravi Kumar: My email is ravi.landlord@example.com if you need to send the paperwork.\n"
+            "22/09/26, 20:09 - Ravi Kumar: Call me on 98450 12345 if the rent changes.\n"
+            "22/09/26, 20:10 - Ananya: Email: ananya@example.com, I decided to keep it.\n"
+            "22/09/26, 20:11 - Ananya: Phone no: 080-2345 6789 if you decide to call.\n"
+            "22/09/26, 20:12 - Ananya: I decided to renew only if rent stays under ₹15,000 from 2026-01-01.")
+    quotes = [line.split(": ", 1)[1] for line in text.splitlines()]
+    g = E.ground(X(decisions=[{"quote": q, "date": "2026-09-22"} for q in quotes]), text)
+    assert [v["attrs"]["quote"] for v in g.entities.values()] == [quotes[-1]]
+    assert [r for _, r in g.dropped] == ["decision quote is a contact line"] * 4
+    assert not E.is_contact_line("Pay 1,20,000 by 2026-12-31 if the loan comes through.")
 
 
 def test_link_placeholder_is_taken_over_by_the_extracted_entity(vault, extractor):
