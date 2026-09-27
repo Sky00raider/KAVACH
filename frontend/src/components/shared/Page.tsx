@@ -1,15 +1,18 @@
 import type { ReactNode } from "react"
 import { Construction } from "lucide-react"
+import { cn } from "@/components/lib/utils"
 
 /** Standard page frame: title row plus content, used by every page. */
-export function Page({ title, description, actions, children }: {
+export function Page({ title, description, actions, className, children }: {
   title: string
   description?: string
   actions?: ReactNode
+  /** Extra classes for the frame, e.g. a full-width, full-height page. */
+  className?: string
   children?: ReactNode
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8">
+    <div className={cn("mx-auto flex w-full max-w-6xl flex-col gap-6 px-8 py-8", className)}>
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>

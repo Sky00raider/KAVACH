@@ -75,16 +75,18 @@ function SourceCard({ source, doc }: { source: SourceRef; doc?: Document }) {
   return (
     <div className="space-y-2.5">
       <div className="flex items-start gap-2">
-        <span className="mt-px grid size-5 shrink-0 place-items-center rounded bg-primary/15 text-[11px] font-semibold text-primary">
-          {source.n}
-        </span>
+        {source.n > 0 && (
+          <span className="mt-px grid size-5 shrink-0 place-items-center rounded bg-primary/15 text-[11px] font-semibold text-primary">
+            {source.n}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1.5 truncate text-sm font-medium">
             <SourceIcon source={doc?.source} className="text-muted-foreground" />
             <span className="truncate">{doc ? basename(doc.path) : sourceLabel(source)}</span>
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="font-mono">{source.locator}</span>
+            <span className="font-mono">{source.locator || chunk?.locator}</span>
             <SignatureBadge status={doc?.signature_status} iss={doc?.iss} />
           </p>
         </div>
@@ -104,7 +106,7 @@ function SourceCard({ source, doc }: { source: SourceRef; doc?: Document }) {
   )
 }
 
-/** Click target that opens the cited passage (GET /api/chunks/{id}). */
+/** Click target that opens the cited passage (GET /api/chunks/{id}). `n = 0` shows no number (graph edges). */
 export function SourcePopover({ source, doc, children }: { source: SourceRef; doc?: Document; children: ReactNode }) {
   return (
     <Popover.Root>

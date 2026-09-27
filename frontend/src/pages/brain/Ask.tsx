@@ -32,6 +32,7 @@ import {
 } from "./ask/answer"
 import { ACCEPT, IngestStrip, useIngest } from "./ask/IngestStrip"
 import { CitationChip, SourcesRow, type DocIndex } from "./ask/Sources"
+import { saveLastAnswer } from "./lastAnswer"
 
 /** Empty-state suggestions. DATA: tune these to the demo vault. */
 const SUGGESTED_QUESTIONS = [
@@ -278,7 +279,10 @@ export default function Ask() {
         q,
         history,
         {
-          onMeta: (meta) => patch((t) => ({ ...t, meta, phase: "reading" })),
+          onMeta: (meta) => {
+            saveLastAnswer(q, meta.entities_used)
+            patch((t) => ({ ...t, meta, phase: "reading" }))
+          },
           onToken: ({ text }) => patch((t) => ({ ...t, text: t.text + text, phase: "answering" })),
           onFinal: (final) => patch((t) => ({ ...t, final, text: final.answer })),
           onDone: (done) =>

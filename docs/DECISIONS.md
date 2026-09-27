@@ -67,6 +67,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-27 | After each document, a one-word PERSON is folded into the only full-name PERSON with that first name (edges, facts and candidates repointed, attrs merged with the full name's keys winning, resulting self-loops closed); no merge with two or more candidates, and never into `e_owner` by first name (only `OWNER_NAME`'s own first name resolves to it) | Notes say "Ravi", the landlord note and chat say "Ravi Kumar": two nodes for one person split the graph |
 | 2026-09-27 | BRAIN step 10 (Vault page with the graph) moves before step 7 (facts + memory) | The graph view is needed for the Sep 28 video |
 | 2026-09-27 | `/api/graph` edges carry `doc_id` (the document of `source_chunk_id`, null once that chunk is gone); owner-approved CONTRACT §9 change | The Vault page filters the graph to one document's entities without a chunk lookup per edge |
+| 2026-09-27 | Vault graph: labels in graph units, always on for PERSON/PROJECT/DECISION, the owner and the last answer's entities, others only on zoom and only where they overlap nothing; a label-aware collision force keeps the always-on ones apart; "fit" caps labels at 14-19 px by canvas height; the layout settles (220 ticks) then every node is frozen, a changed node set re-settles from current positions, dragged nodes stay pinned; DOCUMENT nodes hidden by default | Readable and still on camera for the Sep 28 video; zero label overlaps measured at 1366x768 and 1920x1080 |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 
