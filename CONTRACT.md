@@ -13,6 +13,7 @@ kavach/                         repo root
 ├── kavach/                     Python package
 │   ├── config.py               ports, paths, model names, owner token        (CONTRACT)
 │   ├── models.py               all Pydantic types in this contract            (CONTRACT)
+│   ├── textnorm.py             text normalisation + PDF text hash (§6.5)      (CONTRACT)
 │   ├── db.py                   schema (§8) + helpers                          (BRAIN)
 │   ├── api.py                  FastAPI app, routers, serves frontend/dist     (TRUST)
 │   ├── gate_mcp.py             inbound MCP "kavach-gate", streamable HTTP     (TRUST)
@@ -179,7 +180,15 @@ Attestation: (1) `sig` valid under the pairwise key received at pairing; (2) non
 Output (`VerifierOutput`): `{"answer_type","claim","result","checks":[{"name","ok","detail"}],"all_ok"}`. `claim` is a string: the disclosed issuer claim name for presentations (`"income_ge_50000"`), the attested claim as `"<claim> <op> <value>"` for attestations (`"income ge 60000"`), or `"unsupported"`. For `DECLINED` / `CANNOT_CONFIRM` / `REFUSED`, `checks` is `[]` and `all_ok` is false.
 
 ### 6.5 Signed PDFs
-Issuer signs sha256 of the PDF's normalised text (NFKC, collapsed whitespace). Stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `SignatureResult {status, iss, detail}` where `status` is `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered), `iss` is the claimed issuer or null, `detail` a short reason or null.
+Issuer signs `textnorm.pdf_text_hash(path)`, defined in `kavach/textnorm.py` (the only implementation; BRAIN and TRUST both import it):
+- `pdf_pages(path)`: `page.get_text()` for every page (PyMuPDF), in order.
+- `normalize_text(text)`: NFKC, then every whitespace run (`str.isspace`) -> one space, then strip.
+- `text_hash(text)`: lowercase hex sha256 of the UTF-8 bytes of `normalize_text(text)`. Also the `documents.text_hash` of notes and chats.
+- `pdf_text_hash(path)`: `text_hash("\n".join(pdf_pages(path)))`. The `documents.text_hash` of PDFs.
+
+Issuers sign the `pdf_text_hash` of the **generated PDF**: render the PDF, extract with `pdf_text_hash`, sign, then write the metadata. Never sign the source text. Writing the metadata does not change the hash (tested in `tests/test_textnorm.py`).
+
+The signature is stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `SignatureResult {status, iss, detail}` where `status` is `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered), `iss` is the claimed issuer or null, `detail` a short reason or null.
 
 ## 7. Cross-module Python interfaces
 
@@ -236,7 +245,7 @@ Shapes used above that are not defined elsewhere in this contract:
 | `Plan` | `instruction, calls: [ToolCall], warnings: [str]`; `ToolCall = {tool, args, preview}`, `args` typed per §11.2 |
 | `ToolResult` | `tool, ok: bool, output_path: str\|null, detail: str\|null` |
 | `Task` | `task_id, instruction, plan: Plan, status, result: [ToolResult]\|null, created_at, decided_at` |
-| `Document` | the `documents` row (§8) |
+| `Document` | the `documents` row (§8); `path` is vault-relative |
 | `Entity` | `entity_id, type, name, attrs: {str: str}` |
 
 ## 8. SQLite schema
@@ -265,6 +274,7 @@ CREATE TABLE tasks (task_id TEXT PRIMARY KEY, instruction TEXT, plan_json TEXT, 
 CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TEXT, ref_id TEXT,
   detail_json TEXT, prev_hash TEXT, entry_hash TEXT);
 ```
+- `documents.path`: relative to `VAULT_DIR`, forward slashes (`pdfs/rent_agreement.pdf`), same as `/api/ingest` and the `ingested` audit detail
 - `memory_candidates.kind`: `fact` | `decision`; `status`: `pending` | `accepted` | `discarded`
 - `requesters.status`: `pending` | `paired` | `blocked`
 - `requests.status`: `pending_pairing` | `pending` | `done`; `channel`: `web` | `mcp`
@@ -374,6 +384,8 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 `ingested`, `document_signature_failed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
 
 `request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester`, `malformed` (`models.RejectReason`). `malformed` is a request to `/api/ask*` that fails validation (bad body, missing or non-integer `X-*` headers); it still returns `422`, and its `detail` is exactly `{reason, route, client_ip, error_type}`, never the body.
+
+`document_signature_failed`: logged at ingest when `issuer_check.verify_pdf()` returns `invalid`. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, iss, reason}` with `path` vault-relative, `iss` the claimed issuer or null, `reason` the `SignatureResult.detail`.
 
 `ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}` with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 

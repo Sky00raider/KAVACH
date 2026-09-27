@@ -19,7 +19,7 @@ A local-first second brain for an individual. It ingests their documents, notes 
 ## Tracks and ownership
 | Track | Directories / files | Owner |
 |---|---|---|
-| CONTRACT | `CONTRACT.md`, `kavach/models.py`, `fixtures/`, frontend shell: `frontend/src/{api,shell,components}/`, `frontend/*.config.*` | TBD |
+| CONTRACT | `CONTRACT.md`, `kavach/models.py`, `kavach/textnorm.py`, `fixtures/`, frontend shell: `frontend/src/{api,shell,components}/`, `frontend/*.config.*` | TBD |
 | BRAIN | `kavach/db.py`, `kavach/brain/`, `kavach/agent/planner.py`, `frontend/src/pages/brain/` (Ask, Vault, Memory) | TBD |
 | TRUST | `kavach/trust/`, `kavach/mock_issuers/`, `kavach/agent/executor.py`, `kavach/api.py`, `kavach/gate_mcp.py`, `kavach/tools_mcp.py`, `requester/`, `scripts/run_eval.py`, `frontend/src/pages/trust/` (Queue, Verify, Audit) | TBD |
 | DATA | `demo_data/` content, `eval/` question sets, `README.md`, `docs/pitch/`. Non-code track: agents only touch these files when the owner asks | TBD |

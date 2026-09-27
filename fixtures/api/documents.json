@@ -1,7 +1,7 @@
 [
   {
     "doc_id": "d_03a1b2c3d4",
-    "path": "vault/pdfs/bank_statement_signed.pdf",
+    "path": "pdfs/bank_statement_signed.pdf",
     "source": "pdf",
     "doc_type": "bank_statement",
     "signature_status": "issuer_signed",
@@ -12,7 +12,7 @@
   },
   {
     "doc_id": "d_7e21a0c9b4",
-    "path": "vault/pdfs/rent_agreement.pdf",
+    "path": "pdfs/rent_agreement.pdf",
     "source": "pdf",
     "doc_type": "rent_agreement",
     "signature_status": "unsigned",
@@ -23,7 +23,7 @@
   },
   {
     "doc_id": "d_5b6c7d8e9f",
-    "path": "vault/pdfs/marksheet_signed.pdf",
+    "path": "pdfs/marksheet_signed.pdf",
     "source": "pdf",
     "doc_type": "marksheet",
     "signature_status": "issuer_signed",
@@ -34,7 +34,7 @@
   },
   {
     "doc_id": "d_1c2d3e4f5a",
-    "path": "vault/pdfs/id_card_signed.pdf",
+    "path": "pdfs/id_card_signed.pdf",
     "source": "pdf",
     "doc_type": "id_card",
     "signature_status": "issuer_signed",
@@ -45,7 +45,7 @@
   },
   {
     "doc_id": "d_8f7e6d5c4b",
-    "path": "vault/pdfs/bank_statement_TAMPERED.pdf",
+    "path": "pdfs/bank_statement_TAMPERED.pdf",
     "source": "pdf",
     "doc_type": "bank_statement",
     "signature_status": "invalid",
@@ -56,7 +56,7 @@
   },
   {
     "doc_id": "d_9a8b7c6d5e",
-    "path": "vault/notes/flat-move-2026.md",
+    "path": "notes/flat-move-2026.md",
     "source": "note",
     "doc_type": "note",
     "signature_status": "unsigned",
@@ -67,7 +67,7 @@
   },
   {
     "doc_id": "d_4f3e2d1c0b",
-    "path": "vault/notes/rent-renewal.md",
+    "path": "notes/rent-renewal.md",
     "source": "note",
     "doc_type": "note",
     "signature_status": "unsigned",
@@ -78,7 +78,7 @@
   },
   {
     "doc_id": "d_2b3c4d5e6f",
-    "path": "vault/chats/landlord.txt",
+    "path": "chats/landlord.txt",
     "source": "chat",
     "doc_type": "whatsapp",
     "signature_status": "unsigned",
