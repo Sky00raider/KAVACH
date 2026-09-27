@@ -75,11 +75,10 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 ## TRUST (§6.3)
 
 **Done**
-- (none)
+- 1. `trust/crypto.py` (Ed25519 raw keys, base64url, canonical JSON; `bytes` are signed as-is), `mock_issuers/make_keys.py` (keys in `keys/issuers/`, never replaced; trust list `keys/issuers/trusted_issuers.json`, `--export PATH`), `mock_issuers/issue.py` (batches with fresh salts + shuffled digests per copy; signed bank statement, marksheet, ID card; tampered statement keeping the original signature; rent agreement PDF from `demo_data/templates/rent_agreement.{md,txt}` if present; subject details in `PROFILE`, overridable by `demo_data/issuer_profile.json`)
+- 2. `issuer_check.verify_pdf` (sig over `textnorm.pdf_text_hash` UTF-8 bytes; unknown issuer or bad sig -> `invalid`), `wallet.py` (one-time holder keys under `keys/wallet/pending/`, `import_batch` checks issuer sig + digests + key ownership; `find_copy`, `status`, `claim_copy` atomic use; extra `disclosed_value(ref, claim)` for BRAIN's `decide`), `present.py` (binding signs `{credential_digest_list_hash, disclosures, nonce, aud, iat}`, copy used exactly once; attestations with the pairwise key, 7-day expiry). `tests/test_trust_crypto.py`
 
 **Next**
-1. `trust/crypto.py`, `mock_issuers/` (keys, signed PDFs, tampered PDF, credential batches)
-2. `issuer_check.py`, `wallet.py`, `present.py`
 3. `requester/verifier.py` + `requester/app.py`, owner `/api/ask` path
 4. `pages/trust/Verify` (requester mode): five checks, "Owner-attested" label, storage panel (M1)
 5. `pairing.py`, `consent.py`, `audit.py`, remaining `api.py` routes

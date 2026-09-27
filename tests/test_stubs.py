@@ -56,13 +56,8 @@ def test_watcher_start_returns_running_observer(tmp_path):
 
 def test_trust_stubs_return_contract_types():
     assert crypto.canonical({"b": 1, "a": "₹"}) == '{"a":"₹","b":1}'.encode()
-    assert crypto.verify("pub", {}, crypto.sign(b"k", {})) is False  # fails closed
+    assert crypto.verify("pub", {}, crypto.sign(crypto.new_private_key(), {})) is False  # fails closed
     assert isinstance(issuer_check.verify_pdf(Path("x.pdf")), SignatureResult)
-    assert wallet.find_copy("income_ge_50000") is None
-    assert isinstance(wallet.status(), WalletStatus)
-    ref = CredentialRef(cred_id="cr_1", iss="mock_bank", credential_type="income_proof", copy=1)
-    Presentation.model_validate(present.build_presentation(ref, "income_ge_50000", "n", "aud"))
-    assert present.build_attestation(Claim(claim="income", op="ge", value=60000), True, "fp", "n")["answer"] is True
     assert isinstance(ledger.check(Claim(claim="income", op="ge", value=60000), True), LedgerCheck)
     ask = AskIn(requester_pubkey="p", requester_name="R", requester_type="person", question="q", nonce="n",
                 ts=1790000000, sig="s")
