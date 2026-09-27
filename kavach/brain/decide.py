@@ -16,8 +16,10 @@ assumes every requester colludes.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from pathlib import PurePosixPath
 
 from kavach import db
 from kavach.brain import amounts
@@ -27,6 +29,7 @@ from kavach.models import (
     Claim,
     ClaimInfo,
     ClaimsOut,
+    CredentialRef,
     Fact,
     IssuerClaim,
     Proposal,
@@ -47,6 +50,7 @@ _FAVOURABLE = {"income": "YES", "loan_default_12m": "NO", "age": "YES", "percent
 _NUMERIC = ("income", "percentage", "age")
 _TRUE_WORDS = {"true", "yes", "y", "1"}
 _FALSE_WORDS = {"false", "no", "n", "0", "none", "nil"}
+_ACRONYMS = {"id", "pan", "cbse", "icse"}
 
 
 def claims() -> ClaimsOut:
@@ -90,16 +94,29 @@ def _describe(claim: Claim) -> str:
     """The claim in owner-facing words: the requester's threshold only, never a fact value."""
     name, value = claim.claim, claim.value
     if name == "income":
-        return f"monthly income of at least ₹{value:,}"
+        return f"monthly income ≥ ₹{value:,}"
     if name == "percentage":
-        return f"a percentage of at least {value}"
+        return f"percentage ≥ {value}"
     if name == "age":
-        return f"age {value} or over"
+        return f"age ≥ {value}"
     if name == "loan_default_12m":
         return "loan defaults in the last 12 months"
     if name == "result":
         return "the exam result"
-    return "the exam board" if claim.op == "is" else f"the exam board being {value}"
+    return "your exam board" if claim.op == "is" else f"the exam board being {value}"
+
+
+def _issuer_words(ref: CredentialRef) -> str:
+    """`mock_bank` + `income_proof` -> "Mock Bank income proof"."""
+    issuer = " ".join(w.upper() if w in _ACRONYMS else w.capitalize() for w in ref.iss.split("_"))
+    kind = " ".join(w.upper() if w in _ACRONYMS else w for w in ref.credential_type.split("_"))
+    return f"{issuer} {kind}"
+
+
+def _document_words(path: str) -> str:
+    """`pdfs/bank_statement_signed.pdf` -> "bank statement"."""
+    words = [w for w in re.split(r"[_\-\s]+", PurePosixPath(path).stem.lower()) if w and w != "signed"]
+    return " ".join(w.upper() if w in _ACRONYMS else w for w in words) or "document"
 
 
 def _today() -> date:
@@ -168,9 +185,10 @@ def _proposal(answer_type: str, claim: Claim, result: bool | str, reason: str) -
 def decide(claim: Claim, requester_fp: str) -> Proposal:
     """CONTRACT §5.4 (see module docstring). The returned claim carries the issuer_claim computed here."""
     if claim.claim not in DISCLOSABLE_FIELDS:
-        return Proposal(answer_type="REFUSED", claim=claim, reason="The question does not map to a disclosable claim")
+        return Proposal(answer_type="REFUSED", claim=claim,
+                        reason="Not a yes/no question about income, age, marks, exam result, board or loan defaults")
     if not _well_formed(claim):
-        return Proposal(answer_type="REFUSED", claim=claim, reason=f"Malformed {claim.claim} claim")
+        return Proposal(answer_type="REFUSED", claim=claim, reason="The question could not be read as a valid claim")
     claim = claim.model_copy(update={"issuer_claim": issuer_claim_for(claim)})
     ic = claim.issuer_claim
 
@@ -182,19 +200,19 @@ def decide(claim: Claim, requester_fp: str) -> Proposal:
             signed = None
         if isinstance(signed, (bool, str)):
             return _proposal("ISSUER_PROOF", claim, signed,
-                             f"Unused {ref.iss} {ref.credential_type} copy covers {ic}")
+                             f"Your signed {_issuer_words(ref)} covers {_describe(claim)}")
 
     grounded = _grounded_fact(DISCLOSABLE_FIELDS[claim.claim])
     if claim.claim == "board" and claim.op == "is":
         return Proposal(answer_type="CANNOT_CONFIRM", claim=claim,
-                        reason="Only an issuer credential can disclose the board, and no unused copy is left"
-                        if grounded else "No issuer credential covers the exam board")
+                        reason="Only a signed credential can share your exam board, and no unused copy is left"
+                        if grounded else "No signed credential covers your exam board")
     result = _compare(claim, grounded[0].value) if grounded else None
     if result is None:
         return Proposal(answer_type="CANNOT_CONFIRM", claim=claim,
-                        reason=f"No issuer-signed document or credential covers {_describe(claim)}")
+                        reason=f"No signed document or credential covers {_describe(claim)}")
     check = ledger.check(claim, result)
     if not check.allowed:
         return Proposal(answer_type="REFUSED", claim=claim, reason=check.reason or "Blocked by the disclosure ledger")
     return _proposal("OWNER_ATTESTED", claim, result,
-                     f"Checked in code against the issuer-signed {grounded[1]}; you attest the answer")
+                     f"Signed {_document_words(grounded[1])} shows this; you'd attest it yourself")

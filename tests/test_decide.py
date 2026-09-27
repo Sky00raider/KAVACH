@@ -39,7 +39,8 @@ def _fact(field: str, value: str, *, status: str = "issuer_signed", source_type:
           confidence: str = "high", valid_from: str = "2026-04-01", superseded_by: str | None = None,
           doc: str = "d_stmt") -> None:
     if db.fetch_one("SELECT 1 FROM documents WHERE doc_id = ?", (doc,)) is None:
-        db.insert("documents", {"doc_id": doc, "path": f"pdfs/{doc}.pdf", "source": "pdf",
+        path = "pdfs/bank_statement_signed.pdf" if doc == "d_stmt" else f"pdfs/{doc}.pdf"
+        db.insert("documents", {"doc_id": doc, "path": path, "source": "pdf",
                                 "signature_status": status, "text_hash": "h", "ingested_at": "2026-09-01T00:00:00Z"})
     db.insert("facts", {"fact_id": db.new_id("f"), "entity_id": "e_owner", "field": field, "value": value,
                         "source_type": source_type, "doc_id": doc, "quote": value, "valid_from": valid_from,
@@ -78,7 +79,8 @@ def test_issuer_proof_favourable(runtime):
     _batch(runtime, "income_proof")
     p = decide.decide(INCOME_50K, "fp")
     assert p.answer_type == "ISSUER_PROOF" and p.result is True and p.favourable is True
-    assert p.actions == ["approve", "deny"] and "mock_bank income_proof" in p.reason
+    assert p.actions == ["approve", "deny"]
+    assert p.reason == "Your signed Mock Bank income proof covers monthly income ≥ ₹50,000"
 
 
 def test_issuer_proof_unfavourable_offers_answer_or_decline(runtime):
@@ -105,6 +107,7 @@ def test_board_value_from_the_credential(runtime):
     p = decide.decide(Claim(claim="board", op="is"), "fp")
     assert p.answer_type == "ISSUER_PROOF" and p.result == issue.PROFILE["board"]
     assert p.favourable is None and p.actions == ["approve", "deny"]
+    assert p.reason == "Your signed Mock Board marksheet covers your exam board"  # not the board's name
 
 
 def test_board_value_needs_a_credential(runtime):
@@ -142,7 +145,7 @@ def test_owner_attested_income_is_a_python_comparison(runtime, threshold, result
     _fact("monthly_income", "62,000.00")
     p = decide.decide(Claim(claim="income", op="ge", value=threshold), "fp")
     assert (p.answer_type, p.result, p.favourable, p.actions) == ("OWNER_ATTESTED", result, result, actions)
-    assert "62" not in p.reason and "pdfs/d_stmt.pdf" in p.reason  # the document, never the value
+    assert p.reason == "Signed bank statement shows this; you'd attest it yourself"  # the document, never the value
 
 
 def test_percentage_and_result(runtime):
