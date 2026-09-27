@@ -224,6 +224,44 @@ def test_links_become_mentioned_in_edges_to_the_note(vault, extractor):
     assert res.entities_added == 3
 
 
+@pytest.mark.parametrize("order", ["short first", "full first"])
+def test_first_name_person_merges_into_the_full_name(vault, extractor, order):
+    extractor.table["Talk to Ravi"] = X(people=["Ravi"], projects=["Flat move 2026"],
+                                        contacts=[{"name": "Ravi", "phone": "98450 12345"}],
+                                        relations=[{"src": "Ravi", "rel": "PART_OF", "dst": "Flat move 2026"}])
+    extractor.table["Ravi Kumar"] = X(people=["Ravi Kumar", "Ravi"], contacts=[{"name": "Ravi Kumar",
+                                                                               "email": "ravi@example.com"}],
+                                      relations=[{"src": "Ravi Kumar", "rel": "LANDLORD_OF", "dst": "I"},
+                                                 {"src": "Ravi", "rel": "RELATES_TO", "dst": "Ravi Kumar"}])
+    notes = [("notes/flat.md", "Talk to Ravi about Flat move 2026, 98450 12345."),
+             ("notes/landlord.md", "The landlord is Ravi Kumar (ravi@example.com). Ravi lives upstairs.")]
+    added = [ingest.ingest_file(_write(vault.root, *n)).entities_added for n in
+             (notes if order == "short first" else notes[::-1])]
+
+    persons = [r for r in _entities() if r["type"] == "PERSON" and r["entity_id"] != OWNER_ENTITY_ID]
+    assert [r["name"] for r in persons] == ["Ravi Kumar"]
+    kumar = persons[0]
+    assert json.loads(kumar["attrs_json"]) == {"phone": "98450 12345", "email": "ravi@example.com"}
+    flat = next(r for r in _entities() if r["type"] == "PROJECT")
+    assert {(e["src"], e["rel"], e["dst"]) for e in _edges() if e["rel"] != "MENTIONED_IN"} == {
+        (kumar["entity_id"], "PART_OF", flat["entity_id"]), (kumar["entity_id"], "LANDLORD_OF", OWNER_ENTITY_ID)}
+    assert not [e for e in _edges() if e["src"] == e["dst"]]  # "Ravi RELATES_TO Ravi Kumar" became a loop: closed
+    assert sum(added) == len(_entities()) - 1  # net growth, the owner row aside
+
+
+def test_first_name_merge_needs_exactly_one_candidate_and_never_the_owner(fresh_db):
+    E.ensure_owner()
+    ravi, _ = E.upsert("PERSON", "Ravi")
+    E.upsert("PERSON", "Ravi Kumar")
+    E.upsert("PERSON", "Ravi Shah")
+    db.insert("entities", {"entity_id": "e_ananya0001", "type": "PERSON", "name": "Ananya", "norm_name": "ananya",
+                           "attrs_json": "{}"})  # cannot come from extraction (it resolves to e_owner); still unmerged
+    sita, _ = E.upsert("ORG", "Sita")
+    E.upsert("PERSON", "Sita Rao")  # only a PERSON is folded
+    assert E.merge_first_names() == 0
+    assert {r["entity_id"] for r in _entities()} >= {ravi, "e_ananya0001", sita, OWNER_ENTITY_ID}
+
+
 def test_link_placeholder_is_taken_over_by_the_extracted_entity(vault, extractor):
     ingest.ingest_file(_write(vault.root, "notes/budget.md", "Budget.\n[[Flat move 2026]]"))
     placeholder = _by_name("Flat move 2026")
@@ -532,8 +570,8 @@ def test_real_landlord_is_ravi(real_vault):
         ingest.ingest_file(real_vault / "notes" / name)
     ravi = _by_name("Ravi Kumar")  # landlord.md: "The landlord is Ravi Kumar."
     assert ravi["type"] == "PERSON"
-    first = E.find_in_question("What do I need to confirm with Ravi?")[0]  # "Ravi" (flat_move_2026.md) or Ravi Kumar
-    assert "ravi" in db.fetch_one("SELECT norm_name FROM entities WHERE entity_id = ?", (first,))["norm_name"]
+    assert db.entities_by_norm(["ravi"]) == []  # flat_move_2026.md's "Talk to Ravi" folded into Ravi Kumar
+    assert E.find_in_question("What do I need to confirm with Ravi?")[0] == ravi["entity_id"]
 
 
 @pytest.mark.llm

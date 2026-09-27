@@ -17,7 +17,9 @@ proposes; plain code keeps what the chunk supports (`ground`):
 - a relation needs both ends among the kept names (or the owner); DECIDED and MENTIONED_IN come only from code.
 
 Dedupe is on the normalised name alone (the small model types one name differently from chunk to chunk), except
-that DOCUMENT entities only merge with DOCUMENTs; the first type wins and attrs merge (existing keys win). A
+that DOCUMENT entities only merge with DOCUMENTs; the first type wins and attrs merge (existing keys win). After
+each document a one-word PERSON is folded into the only full-name PERSON with that first name ("Ravi" -> "Ravi
+Kumar"; `merge_first_names`). A
 `[[link]]` target resolves to an existing entity with that normalised name (DOCUMENT last), else becomes a
 placeholder CONCEPT (`attrs.origin = "link"`) that the first extracted entity or note of that name takes over.
 Each note is a DOCUMENT entity named after its file (`budget.md` -> "Budget"), and each link becomes
@@ -348,8 +350,33 @@ def resolve_link(target: str) -> tuple[str, bool]:
     return _create("CONCEPT", target, {"origin": LINK_ORIGIN}), True
 
 
+def merge_first_names() -> int:
+    """Fold every one-word PERSON ("Ravi") into the full-name PERSON with that first name ("Ravi Kumar") when there
+    is exactly one such candidate; e_owner is never a candidate (its own first name already resolves to it, see
+    `is_owner`). Edges, facts and candidates are repointed, attrs merged (the full name's keys win). Returns the
+    number of entities merged away."""
+    persons = [r for r in db.fetch_all("SELECT * FROM entities WHERE type = 'PERSON' ORDER BY rowid")
+               if r["entity_id"] != OWNER_ENTITY_ID]
+    full_by_first: dict[str, list[dict]] = {}
+    for r in persons:
+        if " " in r["norm_name"]:
+            full_by_first.setdefault(r["norm_name"].split()[0], []).append(r)
+    merged = 0
+    for r in persons:
+        targets = full_by_first.get(r["norm_name"], [])
+        if " " in r["norm_name"] or len(targets) != 1:
+            continue
+        into = targets[0]
+        db.merge_entity(r["entity_id"], into["entity_id"], _dump({**_attrs(r), **_attrs(into)}),
+                        closed_on=date.today().isoformat())
+        into["attrs_json"] = _dump({**_attrs(r), **_attrs(into)})
+        merged += 1
+    return merged
+
+
 def index_document(path: str, source: str, chunks: list[dict], links: list[tuple[str, str]]) -> int:
-    """Extract, ground and store entities + edges for one freshly stored document; returns entities created.
+    """Extract, ground and store entities + edges for one freshly stored document, then `merge_first_names`;
+    returns entities created minus entities merged away (net growth of the entities table).
     `chunks`: [{"chunk_id", "text"}]; `links`: [(target, chunk_id)] for a note's `[[links]]`. If Ollama fails,
     extraction stops (logged) and the links are still stored."""
     ensure_owner()
@@ -389,9 +416,10 @@ def index_document(path: str, source: str, chunks: list[dict], links: list[tuple
 
     if edges:
         db.insert_edges(edges)
-    log.info("entities for %s: %d kept, %d dropped by grounding, %d created, %d edges", path, kept, dropped,
-             created, len(edges))
-    return created
+    merged = merge_first_names()
+    log.info("entities for %s: %d kept, %d dropped by grounding, %d created, %d merged by first name, %d edges",
+             path, kept, dropped, created, merged, len(edges))
+    return max(created - merged, 0)
 
 
 # --- question matching (chat) --------------------------------------------------------------------------------

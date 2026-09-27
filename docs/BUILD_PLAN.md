@@ -147,11 +147,11 @@ You own the BRAIN track. Replace stubs with real code, in this order, tests for 
    "1.2 lakh", "50,000/month" -> integers; unit tests) + decide.py (pure code rules, CONTRACT §5.4)
    Done before 6: the M2 disclosure flow runs through parse + decide and must not use stubs
 6. entities.py + graph-neighbour retrieval in chat
+10. pages/brain/Vault: documents with signature badges, entity list, graph (react-force-graph-2d),
+    highlight entities_used from the last answer                             <- before 7: Sep 28 video
 7. extract.py with grounding, memory.py with supersession + candidates + teach;
    "Remember this?" chips on Ask; numeric questions in chat prefer grounded current facts over raw chunks
 9. agent/planner.py
-10. pages/brain/Vault: documents with signature badges, entity list, graph (react-force-graph-2d),
-    highlight entities_used from the last answer                             <- M3
 11. WhatsApp ingestion; pages/brain/Memory: per-field timeline, superseded values, "Teach KAVACH" box
 Never decide disclosures in an LLM. Never import from kavach/trust except the functions in CONTRACT §7.
 UI: build against fixtures first, then live API; regenerate types with npm run gen:types after API changes.

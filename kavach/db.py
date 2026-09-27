@@ -276,6 +276,21 @@ def current_edges(entity_ids: Iterable[str]) -> list[dict[str, Any]]:
                      (*ids, *ids))
 
 
+def merge_entity(from_id: str, into_id: str, attrs_json: str, closed_on: str) -> None:
+    """Fold entity `from_id` into `into_id` in one transaction: edges, facts and memory candidates are repointed,
+    edges that became self-loops are closed on `closed_on`, `into_id` gets `attrs_json`, `from_id` is deleted."""
+    with connect() as conn:
+        conn.execute("UPDATE edges SET src = ? WHERE src = ?", (into_id, from_id))
+        conn.execute("UPDATE edges SET dst = ? WHERE dst = ?", (into_id, from_id))
+        conn.execute("UPDATE edges SET valid_to = ? WHERE src = ? AND dst = ? AND valid_to IS NULL",
+                     (closed_on, into_id, into_id))
+        conn.execute("UPDATE facts SET entity_id = ? WHERE entity_id = ?", (into_id, from_id))
+        conn.execute("UPDATE memory_candidates SET project_entity_id = ? WHERE project_entity_id = ?",
+                     (into_id, from_id))
+        conn.execute("UPDATE entities SET attrs_json = ? WHERE entity_id = ?", (attrs_json, into_id))
+        conn.execute("DELETE FROM entities WHERE entity_id = ?", (from_id,))
+
+
 def chunks_by_ids(chunk_ids: Iterable[str]) -> list[dict[str, Any]]:
     """chunk_id, doc_id, locator, text for the given ids that exist, in insertion order."""
     ids = list(dict.fromkeys(chunk_ids))
