@@ -945,6 +945,8 @@ export interface components {
             valid_to?: string | null;
             /** Source Chunk Id */
             source_chunk_id?: string | null;
+            /** Doc Id */
+            doc_id?: string | null;
         };
         /** GraphNode */
         GraphNode: {

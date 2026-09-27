@@ -343,11 +343,15 @@ def list_facts(field: str | None = None, current: bool = False) -> list[Fact]:
     return [_fact(r) for r in fetch_all(f"SELECT * FROM facts {where} ORDER BY created_at DESC", tuple(params))]
 
 
+_GRAPH_EDGE_COLS = "e.*, c.doc_id"
+_GRAPH_EDGE_FROM = "FROM edges e LEFT JOIN chunks c ON c.chunk_id = e.source_chunk_id"
+
+
 def graph(entity_id: str | None = None, hops: int = 1) -> Graph:
     """Whole graph, or the `hops`-neighbourhood of one entity."""
     if entity_id is None:
         entities = fetch_all("SELECT entity_id, type, name FROM entities")
-        edges = fetch_all("SELECT * FROM edges")
+        edges = fetch_all(f"SELECT {_GRAPH_EDGE_COLS} {_GRAPH_EDGE_FROM}")
     else:
         seen = {entity_id}
         frontier = {entity_id}
@@ -356,8 +360,8 @@ def graph(entity_id: str | None = None, hops: int = 1) -> Graph:
             if not frontier:
                 break
             marks = ", ".join("?" for _ in frontier)
-            rows = fetch_all(f"SELECT * FROM edges WHERE src IN ({marks}) OR dst IN ({marks})",
-                             (*frontier, *frontier))
+            rows = fetch_all(f"SELECT {_GRAPH_EDGE_COLS} {_GRAPH_EDGE_FROM} WHERE e.src IN ({marks}) "
+                             f"OR e.dst IN ({marks})", (*frontier, *frontier))
             nxt: set[str] = set()
             for e in rows:
                 edges_by_id[e["edge_id"]] = e
@@ -370,7 +374,8 @@ def graph(entity_id: str | None = None, hops: int = 1) -> Graph:
     return Graph(
         nodes=[GraphNode(id=e["entity_id"], type=e["type"], name=e["name"]) for e in entities],
         edges=[GraphEdge(id=e["edge_id"], src=e["src"], dst=e["dst"], rel=e["rel"], valid_from=e["valid_from"],
-                         valid_to=e["valid_to"], source_chunk_id=e["source_chunk_id"]) for e in edges],
+                         valid_to=e["valid_to"], source_chunk_id=e["source_chunk_id"], doc_id=e["doc_id"])
+               for e in edges],
     )
 
 

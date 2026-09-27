@@ -300,7 +300,7 @@ Owner routes and token injection also require the `Host` header to be `localhost
 | GET | `/api/documents` | | `[Document]` |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
 | GET | `/api/facts` | `?field=&current=true` (`current` defaults to `true`; `false` includes superseded facts) | `[Fact]` |
-| GET | `/api/graph` | `?entity_id=&hops=1` | `{nodes:[{id,type,name}], edges:[{id,src,dst,rel,valid_from,valid_to,source_chunk_id}]}` |
+| GET | `/api/graph` | `?entity_id=&hops=1` | `{nodes:[{id,type,name}], edges:[{id,src,dst,rel,valid_from,valid_to,source_chunk_id,doc_id}]}`; `doc_id` is the document of `source_chunk_id`, `null` when that chunk no longer exists (an edge closed by a changed or removed document) |
 | GET | `/api/chunks/{chunk_id}` | | `{chunk_id, doc_id, locator, text}` (owner only, for citation popovers) |
 | POST | `/api/chat` | `{question, history}` | `ChatResult` |
 | POST | `/api/chat/stream` | `{question, history}` | `text/event-stream`, see §10 |

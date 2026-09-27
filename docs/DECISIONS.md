@@ -66,6 +66,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-27 | Chat graph retrieval: entities the question names (whole normalised name in the question, a PERSON's first name, or name embedding cosine >= 0.72, at most 3; the owner never) add +0.3 to the source chunks of their open edges, and pull those chunks in at 0.3, before the usual per-document cap, score floor and token budget; `entities_used` = named entities, then neighbours whose linking chunk was sent | On the demo vault named entities score 0.75-0.96 and "salary" tops out at 0.55; the boost reorders without growing the prompt |
 | 2026-09-27 | After each document, a one-word PERSON is folded into the only full-name PERSON with that first name (edges, facts and candidates repointed, attrs merged with the full name's keys winning, resulting self-loops closed); no merge with two or more candidates, and never into `e_owner` by first name (only `OWNER_NAME`'s own first name resolves to it) | Notes say "Ravi", the landlord note and chat say "Ravi Kumar": two nodes for one person split the graph |
 | 2026-09-27 | BRAIN step 10 (Vault page with the graph) moves before step 7 (facts + memory) | The graph view is needed for the Sep 28 video |
+| 2026-09-27 | `/api/graph` edges carry `doc_id` (the document of `source_chunk_id`, null once that chunk is gone); owner-approved CONTRACT §9 change | The Vault page filters the graph to one document's entities without a chunk lookup per edge |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 

@@ -23,7 +23,8 @@ def test_insert_update_and_typed_readers(fresh_db):
                                  "attrs_json": "{}"})
     fresh_db.insert("entities", {"entity_id": "e_2", "type": "PERSON", "name": "Ramesh", "norm_name": "ramesh",
                                  "attrs_json": json.dumps({"email": "r@example.com"})})
-    fresh_db.insert("edges", {"edge_id": "x_1", "src": "e_2", "rel": "LANDLORD_OF", "dst": "e_owner"})
+    fresh_db.insert("edges", {"edge_id": "x_1", "src": "e_2", "rel": "LANDLORD_OF", "dst": "e_owner",
+                              "source_chunk_id": "c_1"})
     fresh_db.insert("facts", {"fact_id": "f_1", "entity_id": "e_owner", "field": "rent_amount", "value": "15000",
                               "source_type": "extracted", "confidence": "high", "created_at": "2026-09-26T10:00:00Z"})
     fresh_db.insert("facts", {"fact_id": "f_0", "entity_id": "e_owner", "field": "rent_amount", "value": "14000",
@@ -40,6 +41,11 @@ def test_insert_update_and_typed_readers(fresh_db):
     g = fresh_db.graph("e_2", hops=1)
     assert {n.id for n in g.nodes} == {"e_2", "e_owner"} and g.edges[0].rel == "LANDLORD_OF"
     assert len(fresh_db.graph().nodes) == 2
+    # doc_id comes from the source chunk; null once that chunk is gone (replaced or removed version)
+    assert g.edges[0].doc_id == "d_1"
+    fresh_db.insert("edges", {"edge_id": "x_2", "src": "e_owner", "rel": "RELATES_TO", "dst": "e_2",
+                              "source_chunk_id": "c_gone", "valid_to": "2026-09-26"})
+    assert {e.id: e.doc_id for e in fresh_db.graph().edges} == {"x_1": "d_1", "x_2": None}
 
     assert fresh_db.update("documents", "doc_id", "d_1", {"removed_at": "2026-09-26T11:00:00Z"}) == 1
     assert fresh_db.list_documents() == []

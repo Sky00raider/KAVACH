@@ -99,6 +99,8 @@ class GraphEdge(Model):
     valid_from: str | None = None
     valid_to: str | None = None
     source_chunk_id: str | None = None
+    doc_id: str | None = None
+    """Document of `source_chunk_id`; null when that chunk is gone (a replaced or removed version)."""
 
 
 class Graph(Model):
