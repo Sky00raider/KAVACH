@@ -83,11 +83,12 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 6. Malformed `/api/ask*` audited as `request_rejected` `{reason: malformed, route, client_ip, error_type}`, ref_id = `X-Requester-Fp` when it is 16 hex, never the body; still 422
 - 8. `ledger.py`: global `[lo, hi)` per income / percentage, re-checked at the owner's decision; issuer and attested answers both narrow it; 3 distinct attested thresholds per 30 days. `tests/test_requester.py` (two-laptop flow: bank-signed proof, five ticks), `tests/test_trust_consent.py` (attacks, ledger, audit tamper)
 
+- 9. `gate_mcp.py` forwards every tool to `127.0.0.1:API_PORT/api/ask*` / `/api/claims` with `X-Channel: mcp` (owner errors surface as MCP `ToolError` text; `request_id` limited to `[A-Za-z0-9_-]`); `requester/agent_client.py` (own `agent` keypair, asks via MCP streamable HTTP, polls `get_answer`, verifies, records `via: "agent"`; `python -m requester.agent_client [questions] --wait 120`)
+- 10. `tools_mcp.py` (real files: `.eml` with proof JSON attachments from answered requests, `.ics` with a 9 am alarm, rental form PDF, notes under `vault/notes/` never overwritten; no network code) + `agent/executor.py` (only `approved` tasks; re-validates recipient against graph emails or the typed instruction, attachments and future ISO dates; runs valid calls over stdio with the runtime paths in the child env and no owner token; invalid calls reported "not run"); `api.py` records executor exceptions as failed results. `tests/test_mcp.py` (gate forwarding, agent end-to-end, tools, executor)
+
 **Next**
 4. `pages/trust/Verify` (requester mode): five checks, "Owner-attested" label, storage panel (M1)
 7. `pages/trust/Queue` and `pages/trust/Audit` (M2)
-9. `gate_mcp.py` (streamable HTTP -> `/api/ask`) + `requester/agent_client.py`
-10. `tools_mcp.py` + `agent/executor.py`
 11. `scripts/run_eval.py` and `scripts/reset_demo.py`
 12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe; CONTRACT §12 change via CONTRACT owner
 13. (low priority) Document the §10 stream in OpenAPI (`responses=` on `/api/chat/stream` with the `ChatEvent` models) so `gen:types` covers it; then drop the derived stream types in `client.ts`

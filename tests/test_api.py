@@ -221,6 +221,8 @@ def test_chat_memory_and_decisions(client):
 
 
 def test_task_plan_approve_execute(client):
+    db.insert("entities", {"entity_id": "e_l", "type": "PERSON", "name": "Ramesh Kumar", "norm_name": "ramesh kumar",
+                           "attrs_json": json.dumps({"email": "ramesh.kumar@example.com"})})
     task = Task.model_validate(client.post("/api/tasks", headers=TOKEN, json={"instruction": "Email Ramesh"}).json())
     assert task.status == "planned"
     assert [t["task_id"] for t in client.get("/api/queue", headers=TOKEN).json()["tasks"]] == [task.task_id]

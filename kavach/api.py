@@ -63,6 +63,7 @@ from kavach.models import (
     TaskIn,
     TeachIn,
     TeachResult,
+    ToolResult,
     WalletStatus,
 )
 from kavach.trust import audit, consent, pairing, wallet
@@ -348,7 +349,11 @@ def task_decision(task_id: str, body: TaskDecisionIn) -> Task:
     task.status = "approved"
     db.save_task(task)
     audit.log("task_approved", task_id, {})
-    task.result = executor.execute(task_id)
+    try:
+        task.result = executor.execute(task_id)
+    except Exception as exc:  # noqa: BLE001 - the task is recorded as failed, never left half-approved
+        task.result = [ToolResult(tool=c.tool, ok=False, detail=f"not run: {type(exc).__name__}: {exc}"[:300])
+                       for c in task.plan.calls]
     task.status = "done" if all(r.ok for r in task.result) else "failed"
     db.save_task(task)
     audit.log("task_executed" if task.status == "done" else "task_failed", task_id,

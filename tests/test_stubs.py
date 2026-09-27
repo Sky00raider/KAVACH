@@ -60,7 +60,6 @@ def test_trust_stubs_return_contract_types():
     assert crypto.canonical({"b": 1, "a": "₹"}) == '{"a":"₹","b":1}'.encode()
     assert crypto.verify("pub", {}, crypto.sign(crypto.new_private_key(), {})) is False  # fails closed
     assert isinstance(issuer_check.verify_pdf(Path("x.pdf")), SignatureResult)
-    assert all(isinstance(r, ToolResult) for r in executor.execute("t_1"))
 
 
 def test_trust_db_functions_return_contract_types(fresh_db):
