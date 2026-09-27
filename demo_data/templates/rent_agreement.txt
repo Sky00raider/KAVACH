@@ -1,0 +1,34 @@
+RESIDENTIAL RENT AGREEMENT
+
+Tenant:
+Duk
+
+Landlord:
+Ravi Kumar
+
+Property:
+Flat 402, Green View Apartments
+
+Monthly Rent:
+₹14,500
+
+Security Deposit:
+₹50,000
+
+Agreement Start Date:
+01 January 2026
+
+Agreement End Date:
+31 December 2026
+
+Payment Due Date:
+5th of every month
+
+Landlord Email:
+ravi.landlord@example.com
+
+Purpose:
+Residential accommodation.
+
+Note:
+This is a mock agreement created for the KAVACH demonstration.
