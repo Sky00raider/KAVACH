@@ -234,6 +234,7 @@ Automatic ingestion · cited Ask my vault · graph of people, projects, concepts
 
 ## 10. Demo day checklist
 - [ ] Models pulled on the demo laptop; `keep_alive` set; warm-up call before going on stage
+- [ ] Demo laptop plugged in, Windows power saver / Energy saver off (it halves prefill: ~9 s first token becomes ~17 s); ask one warm-up vault question after the models load (the first answer takes ~15 s)
 - [ ] `frontend` built; `reset_demo.py` run; `kavach.db` backup restorable
 - [ ] `agent_client.py` tested offline
 - [ ] Hotspot with mobile data off; static IPs; ports 8000, 8001, 9000 open in both firewalls; `OWNER_URL` set

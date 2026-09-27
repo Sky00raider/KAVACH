@@ -2,9 +2,9 @@
 
 Retrieval is hybrid search (`embed.search`): up to TOP_K chunks, at most MAX_PER_DOC per document, hits below
 MIN_SCORE dropped once MIN_CHUNKS are kept; history + chunk text is then held to CONTEXT_TOKENS (estimated,
-history trimmed first), and chunk text is compacted (`model_text`) before it is sent. On a CPU laptop prefill
-runs at ~25-30 tokens/s on 7b and ~60 on 3b, so prompt size is first-token latency. Graph neighbours (step 6) and current facts
-(step 7) are added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
+history trimmed first), and chunk text is compacted (`model_text`) before it is sent. On the CPU laptop (AC
+power, power saver off) prefill runs at ~50 tokens/s on 7b and ~115 on 3b, and power saver halves it, so prompt
+size is first-token latency. Graph neighbours (step 6) and current facts (step 7) are added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
 their contents are untrusted data, never instructions. The model only writes the answer; the citation check
 is plain code over the finished text.
 
