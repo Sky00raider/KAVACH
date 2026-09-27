@@ -27,6 +27,11 @@ SOURCES: dict[str, DocSource] = {".pdf": "pdf", ".md": "note", ".txt": "chat"}
 
 # [[Target]], [[Target|alias]], [[Target#heading]]; the target is what step 6 turns into MENTIONED_IN edges
 _LINK = re.compile(r"\[\[([^\[\]|#]+)(?:#[^\[\]|]*)?(?:\|[^\[\]]*)?\]\]")
+# Note layout the owner writes: "Project: [[X]]", and "Related: [[A]], [[B]]" or a "Related:" line / heading
+# followed by a list of links
+_PROJECT_LINE = re.compile(r"^\s*(?:[-*+]\s+)?project\s*:\s*(.*)$", re.IGNORECASE)
+_RELATED_LINE = re.compile(r"^\s*(?:#+\s*related\s*:?|(?:[-*+]\s+)?related\s*:)\s*(.*)$", re.IGNORECASE)
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 # First match wins; checked against the lowercased file name + first page / opening text.
 _DOC_TYPES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -54,6 +59,27 @@ def note_links(text: str) -> list[str]:
     for m in _LINK.finditer(text):
         seen.setdefault(" ".join(m.group(1).split()), None)
     return [t for t in seen if t]
+
+
+def note_structure(text: str) -> tuple[str | None, list[str]]:
+    """(project, related) from a note's layout: the first link on a "Project: [[X]]" line, and every link on a
+    "Related:" line or in the list right under it (the list ends at a blank line, a heading or any other line)."""
+    project: str | None = None
+    related: list[str] = []
+    in_related = False
+    for line in text.splitlines():
+        m = _PROJECT_LINE.match(line)
+        if m and project is None and note_links(m.group(1)):
+            project = note_links(m.group(1))[0]
+        r = _RELATED_LINE.match(line)
+        if r:
+            in_related = True
+            related += note_links(r.group(1))
+        elif in_related and (_LIST_ITEM.match(line) or line.lstrip().startswith("[[")) and note_links(line):
+            related += note_links(line)
+        else:
+            in_related = False
+    return project, list(dict.fromkeys(related))
 
 
 def _break_at(text: str, lo: int, hi: int) -> int:
@@ -159,8 +185,9 @@ def ingest_file(path: Path) -> IngestResult:
         chunk["embedding"] = blob
 
     opening = sections[0][1][: config.CHUNK_SIZE] if sections else ""
+    doc_type = _doc_type(source, path.name, opening)
     db.store_document({"doc_id": doc_id, "path": rel, "source": source,
-                       "doc_type": _doc_type(source, path.name, opening), "signature_status": sig.status,
+                       "doc_type": doc_type, "signature_status": sig.status,
                        "iss": sig.iss, "text_hash": digest, "ingested_at": utc_now(), "removed_at": None},
                       chunks, closed_on=date.today().isoformat())
     embed.invalidate()
@@ -171,7 +198,9 @@ def ingest_file(path: Path) -> IngestResult:
         first_link: dict[str, tuple[str, str]] = {}
         for target, chunk_id in links:
             first_link.setdefault(entities.normalise_name(target), (target, chunk_id))
-        entities_added = entities.index_document(rel, source, chunks, list(first_link.values()))
+        project, related = note_structure("\n".join(t for _, t in sections)) if source == "note" else (None, [])
+        entities_added = entities.index_document(rel, source, chunks, list(first_link.values()), doc_type=doc_type,
+                                                 project=project, related=related)
 
     result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status,
                           chunks_added=len(chunks), entities_added=entities_added)

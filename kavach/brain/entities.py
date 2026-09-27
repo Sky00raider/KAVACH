@@ -33,6 +33,14 @@ Kumar"; `merge_first_names`). A
 placeholder CONCEPT (`attrs.origin = "link"`) that the first extracted entity or note of that name takes over.
 Each note is a DOCUMENT entity named after its file (`budget.md` -> "Budget"), and each link becomes
 `target -MENTIONED_IN-> DOCUMENT(note)` sourced from the chunk holding the link.
+
+Structural edges from the owner's own note layout (`ingest.note_structure`): in a note with a "Project: [[X]]" line
+every other link becomes `target -PART_OF-> X` (if REL_TYPES allows it); each link on a "Related:" line or list
+becomes `X -RELATES_TO-> target` (the note's DOCUMENT when there is no project line), unless PART_OF already joins
+the pair. Both are sourced from the chunk holding the link.
+
+Model-proposed PAID edges from bank statements are dropped: a statement row does not say who paid whom in words
+the model reads reliably (a debit to "RAVI KUMAR" came back as "Ravi Kumar PAID owner"); step 7 parses the rows.
 """
 
 from __future__ import annotations
@@ -519,13 +527,17 @@ def upsert(type: str, name: str, attrs: dict[str, str] | None = None) -> tuple[s
 
 
 def resolve_link(target: str) -> tuple[str, bool]:
-    """(entity_id, created) for a `[[link]]` target: an existing entity of that name (DOCUMENT last), else a
-    placeholder CONCEPT."""
+    """(entity_id, created) for a `[[link]]` target: an existing entity of that name (DOCUMENT last; renamed when
+    the link spells it better, `better_name`), else a placeholder CONCEPT."""
     if is_owner(target):
         return OWNER_ENTITY_ID, False
     rows = db.entities_by_norm([normalise_name(target)])
     if rows:
-        return sorted(rows, key=lambda r: r["type"] == "DOCUMENT")[0]["entity_id"], False
+        row = sorted(rows, key=lambda r: r["type"] == "DOCUMENT")[0]
+        best = better_name(row["name"], " ".join(target.split()))
+        if best != row["name"] and row["type"] != "DECISION":
+            db.update("entities", "entity_id", row["entity_id"], {"name": best})
+        return row["entity_id"], False
     return _create("CONCEPT", target, {"origin": LINK_ORIGIN}), True
 
 
@@ -553,11 +565,13 @@ def merge_first_names() -> int:
     return merged
 
 
-def index_document(path: str, source: str, chunks: list[dict], links: list[tuple[str, str]]) -> int:
+def index_document(path: str, source: str, chunks: list[dict], links: list[tuple[str, str]], *,
+                   doc_type: str | None = None, project: str | None = None, related: list[str] | None = None) -> int:
     """Extract, ground and store entities + edges for one freshly stored document, then `merge_first_names`;
     returns entities created minus entities merged away (net growth of the entities table).
-    `chunks`: [{"chunk_id", "text"}]; `links`: [(target, chunk_id)] for a note's `[[links]]`. If Ollama fails,
-    extraction stops (logged) and the links are still stored."""
+    `chunks`: [{"chunk_id", "text"}]; `links`: [(target, chunk_id)] for a note's `[[links]]`, first chunk per
+    target; `project` / `related`: the note's layout (module docstring). If Ollama fails, extraction stops (logged)
+    and the links and structural edges are still stored."""
     ensure_owner()
     created = 0
     edges: list[dict] = []
@@ -584,7 +598,9 @@ def index_document(path: str, source: str, chunks: list[dict], links: list[tuple
             created += new
         types = db.entity_types(ids.values())   # dedupe may have kept an earlier type: check REL_TYPES again
         for src, rel, dst, when in g.relations:
-            if relation_allowed(rel, types.get(ids[src]), types.get(ids[dst])):
+            if rel == "PAID" and doc_type == "bank_statement":
+                off_type += 1
+            elif relation_allowed(rel, types.get(ids[src]), types.get(ids[dst])):
                 edge(ids[src], rel, ids[dst], when, chunk["chunk_id"])
             else:
                 off_type += 1
@@ -592,10 +608,25 @@ def index_document(path: str, source: str, chunks: list[dict], links: list[tuple
     if source == "note":
         doc_entity, new = upsert("DOCUMENT", note_title(path), {"path": path})
         created += new
+        project_id = None
+        if project:
+            project_id, new = resolve_link(project)
+            created += new
+        targets: list[tuple[str, str, str]] = []
         for target, chunk_id in links:
             target_id, new = resolve_link(target)
             created += new
             edge(target_id, "MENTIONED_IN", doc_entity, None, chunk_id)
+            targets.append((target, target_id, chunk_id))
+        related_norms = {normalise_name(t) for t in related or []}
+        types = db.entity_types([doc_entity, project_id or doc_entity, *(t for _, t, _ in targets)])
+        for target, target_id, chunk_id in targets:
+            part_of = (project_id is not None and target_id != project_id
+                       and relation_allowed("PART_OF", types.get(target_id), types.get(project_id)))
+            if part_of:
+                edge(target_id, "PART_OF", project_id, None, chunk_id)
+            if normalise_name(target) in related_norms and not part_of:
+                edge(project_id or doc_entity, "RELATES_TO", target_id, None, chunk_id)
 
     if edges:
         db.insert_edges(edges)

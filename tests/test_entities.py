@@ -220,7 +220,10 @@ def test_links_become_mentioned_in_edges_to_the_note(vault, extractor):
     chunk_id = db.fetch_one("SELECT chunk_id FROM chunks WHERE doc_id = ?", (res.doc_id,))["chunk_id"]
     assert [(e["src"], e["rel"], e["dst"], e["source_chunk_id"], e["valid_from"]) for e in _edges()] == [
         (renewal["entity_id"], "MENTIONED_IN", doc["entity_id"], chunk_id, None),
-        (flat["entity_id"], "MENTIONED_IN", doc["entity_id"], chunk_id, None)]  # self-link [[Budget]] skipped
+        (flat["entity_id"], "MENTIONED_IN", doc["entity_id"], chunk_id, None),  # self-link [[Budget]] skipped
+        # the "Related:" list, from the note itself (no "Project:" line)
+        (doc["entity_id"], "RELATES_TO", renewal["entity_id"], chunk_id, None),
+        (doc["entity_id"], "RELATES_TO", flat["entity_id"], chunk_id, None)]
     assert res.entities_added == 3
 
 
@@ -424,6 +427,68 @@ def test_decision_quote_is_never_a_contact_line():
     assert [v["attrs"]["quote"] for v in g.entities.values()] == [quotes[-1]]
     assert [r for _, r in g.dropped] == ["decision quote is a contact line"] * 4
     assert not E.is_contact_line("Pay 1,20,000 by 2026-12-31 if the loan comes through.")
+
+
+# --- structural edges from the owner's note layout; no PAID from bank statements ---------------------------
+
+
+def test_note_structure_reads_project_and_related():
+    demo = ("# Rent Renewal Decision\nDecision: renew. See [[Budget]] first.\n\nProject: [[Flat move 2026]]\n\n"
+            "Related:\n- [[Budget]]\n- [[Landlord|my landlord]]\n* [[Rent renewal#Notes]]\n")
+    assert ingest.note_structure(demo) == ("Flat move 2026", ["Budget", "Landlord", "Rent renewal"])
+    assert ingest.note_structure("Related: [[A]], [[B]]\n[[C]]\n\n[[D]]") == (None, ["A", "B", "C"])
+    assert ingest.note_structure("## Related\n1. [[A]]\n2. [[B]]\nSome prose with [[C]].\n- [[D]]") == (None, ["A", "B"])
+    assert ingest.note_structure("- Project: [[X]] and [[Y]]\nProject: [[Z]]") == ("X", [])
+    assert ingest.note_structure("Related to the rent: [[A]]\nProject: Flat move") == (None, [])
+
+
+@pytest.fixture
+def project_note(vault, extractor):
+    extractor.table["Decided"] = X(people=["Ravi Kumar"])
+    extractor.table["Project:"] = X(projects=["Flat move 2026"])       # chunk 2, where the name is
+    filler = "Some thoughts about the flat and the budget. " * 16          # pushes the Related list to chunk 2
+    text = (f"# Rent decision\nDecided to renew if rent stays low. Ravi Kumar agreed. See [[Budget note]].\n\n"
+            f"{filler}\n\nProject: [[Flat move 2026]]\n\nRelated:\n- [[Landlord]]\n- [[Rent renewal]]\n- [[Ravi Kumar]]")
+    res = ingest.ingest_file(_write(vault.root, "notes/rent_decision.md", text))
+    chunks = db.fetch_all("SELECT chunk_id, text FROM chunks WHERE doc_id = ? ORDER BY rowid", (res.doc_id,))
+    assert len(chunks) >= 2
+    return SimpleNamespace(chunks=chunks, doc=_by_name("Rent decision"))
+
+
+def test_project_note_links_become_part_of_the_project(project_note):
+    flat = next(r for r in _entities() if r["type"] == "PROJECT")
+    names = {r["entity_id"]: r["name"] for r in _entities()}
+    chunk_of = lambda name: next(c["chunk_id"] for c in project_note.chunks if f"[[{name}]]" in c["text"])  # noqa: E731
+    structural = [(names[e["src"]], e["rel"], names[e["dst"]], e["source_chunk_id"]) for e in _edges()
+                  if e["rel"] in ("PART_OF", "RELATES_TO")]
+    assert sorted(structural) == sorted([
+        ("Budget note", "PART_OF", "Flat move 2026", chunk_of("Budget note")),
+        ("Landlord", "PART_OF", "Flat move 2026", chunk_of("Landlord")),
+        ("Rent renewal", "PART_OF", "Flat move 2026", chunk_of("Rent renewal")),
+        ("Flat move 2026", "RELATES_TO", "Ravi Kumar", chunk_of("Ravi Kumar")),   # a PERSON is not PART_OF
+    ])
+    assert chunk_of("Budget note") != chunk_of("Rent renewal")
+    assert not [e for e in _edges() if e["src"] == flat["entity_id"] and e["dst"] == flat["entity_id"]]
+
+
+def test_a_link_spelling_the_name_better_renames_the_entity(fresh_db):
+    budget, _ = E.upsert("CONCEPT", "budget")
+    assert E.resolve_link("Budget") == (budget, False)
+    assert _by_name("budget")["name"] == "Budget"
+    assert E.resolve_link("BUDGET") == (budget, False) and _by_name("budget")["name"] == "Budget"
+
+
+def test_bank_statement_paid_edges_are_dropped(vault, extractor):
+    paid = [{"src": "I", "rel": "PAID", "dst": "Ravi Kumar"}]
+    extractor.table["UPI/RENT"] = X(people=["Ravi Kumar"], relations=paid)
+    extractor.table["Paid rent"] = X(people=["Ravi Kumar"], relations=paid)
+    pdf = vault.root / "pdfs" / "statement.pdf"
+    _make_pdf(pdf, ["Statement of Account Mock Bank 2026-06-05 UPI/RENT/Ravi Kumar 14,500.00"])
+    stmt = ingest.ingest_file(pdf)
+    assert db.fetch_one("SELECT doc_type FROM documents WHERE doc_id = ?", (stmt.doc_id,))["doc_type"] == "bank_statement"
+    assert not [e for e in _edges() if e["rel"] == "PAID"]
+    ingest.ingest_file(_write(vault.root, "notes/rent.md", "Paid rent to Ravi Kumar today."))
+    assert [(e["src"], e["rel"]) for e in _edges() if e["rel"] == "PAID"] == [(OWNER_ENTITY_ID, "PAID")]
 
 
 def test_link_placeholder_is_taken_over_by_the_extracted_entity(vault, extractor):

@@ -150,7 +150,8 @@ You own the BRAIN track. Replace stubs with real code, in this order, tests for 
 10. pages/brain/Vault: documents with signature badges, entity list, graph (react-force-graph-2d),
     highlight entities_used from the last answer                             <- before 7: Sep 28 video
 7. extract.py with grounding, memory.py with supersession + candidates + teach;
-   "Remember this?" chips on Ask; numeric questions in chat prefer grounded current facts over raw chunks
+   "Remember this?" chips on Ask; numeric questions in chat prefer grounded current facts over raw chunks;
+   bank rows parsed in code: debit -> owner PAID X, credit -> X PAID owner
 9. agent/planner.py
 11. WhatsApp ingestion; pages/brain/Memory: per-field timeline, superseded values, "Teach KAVACH" box
 Never decide disclosures in an LLM. Never import from kavach/trust except the functions in CONTRACT §7.
