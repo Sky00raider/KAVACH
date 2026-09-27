@@ -1,6 +1,7 @@
 """Owner API (CONTRACT §9, §10): auth, every route's shape, chat stream framing, uploads, frontend injection."""
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,6 +34,7 @@ from kavach.models import (
     TeachResult,
     WalletStatus,
 )
+from kavach.trust import crypto
 
 TOKEN = {"X-Owner-Token": "test-owner-token"}
 LAN = ("192.168.1.50", 50000)
@@ -56,6 +58,18 @@ def _ask_body(**kw):
     body = {"requester_pubkey": "MCowBQYDK2VwAyEA" + "A" * 44, "requester_name": "Ramesh Kumar",
             "requester_type": "landlord", "question": "Earns 50k?", "nonce": "n1", "ts": 1790000000, "sig": "s"}
     return body | kw
+
+
+def _signed_ask(priv, **kw):
+    body = {"requester_pubkey": crypto.public_key(priv), "requester_name": "Ramesh Kumar",
+            "requester_type": "landlord", "question": "Earns 50k?", "nonce": "n1", "ts": int(time.time())} | kw
+    return body | {"sig": crypto.sign(priv, body)}
+
+
+def _poll_headers(priv, request_id):
+    ts = int(time.time())
+    return {"X-Requester-Fp": crypto.fingerprint(crypto.public_key(priv)), "X-Ts": str(ts),
+            "X-Sig": crypto.sign(priv, f"{request_id}|{ts}".encode())}
 
 
 # --- auth ------------------------------------------------------------------------------------------------
@@ -125,7 +139,7 @@ def test_every_owner_route_requires_auth(client):
 
 def test_requester_routes_need_no_token(client, lan):
     assert lan.get("/api/claims").status_code == 200
-    assert lan.post("/api/ask", json=_ask_body()).status_code == 200
+    assert lan.post("/api/ask", json=_signed_ask(crypto.new_private_key())).status_code == 200
 
 
 # --- routes return their contract types ------------------------------------------------------------------
@@ -193,11 +207,17 @@ def test_chat_memory_and_decisions(client):
     TeachResult.model_validate(r.json())
     r = client.post("/api/memory/candidates/mc_1/decision", headers=TOKEN, json={"remember": True})
     CandidateDecisionOut.model_validate(r.json())
-    r = client.post("/api/requesters/fp1/decision", headers=TOKEN, json={"approve": False})
-    assert Requester.model_validate(r.json()).status == "blocked"
-    r = client.post("/api/requests/rq_1/decision", headers=TOKEN, json={"action": "approve"})
-    RequestView.model_validate(r.json())
+    assert client.post("/api/requesters/fp1/decision", headers=TOKEN, json={"approve": False}).status_code == 404
+    assert client.post("/api/requests/rq_1/decision", headers=TOKEN, json={"action": "approve"}).status_code == 404
     assert client.post("/api/requests/rq_1/decision", headers=TOKEN, json={"action": "leak"}).status_code == 422
+    client.post("/api/ask", json=_signed_ask(crypto.new_private_key()))
+    fp = client.get("/api/queue", headers=TOKEN).json()["requesters"][0]["fingerprint"]
+    r = client.post(f"/api/requesters/{fp}/decision", headers=TOKEN, json={"approve": False})
+    assert Requester.model_validate(r.json()).status == "blocked"
+    req = db.list_requests()[0]
+    assert req.status == "done" and req.answer_type == "REFUSED"
+    assert client.post(f"/api/requests/{req.request_id}/decision", headers=TOKEN,
+                       json={"action": "approve"}).status_code == 409
 
 
 def test_task_plan_approve_execute(client):
@@ -355,15 +375,17 @@ def test_ask_rejections_map_to_status(client, monkeypatch, reason, status):
 
 
 def test_poll_only_by_the_requesting_fp(client, lan):
-    db.insert("requests", {"request_id": "rq_1", "requester_fp": "fp_a", "channel": "web", "question": "q",
-                           "nonce": "n1", "status": "pending", "created_at": "2026-09-26T10:00:00Z"})
-    hdrs = {"X-Ts": "1790000000", "X-Sig": "s"}
-    r = lan.get("/api/ask/rq_1", headers=hdrs | {"X-Requester-Fp": "fp_a"})
-    assert r.status_code == 200 and AskResult.model_validate(r.json()).status == "pending"
-    other = lan.get("/api/ask/rq_1", headers=hdrs | {"X-Requester-Fp": "fp_b"})
-    missing = lan.get("/api/ask/rq_nope", headers=hdrs | {"X-Requester-Fp": "fp_a"})
+    a, b = crypto.new_private_key(), crypto.new_private_key()
+    rid = AskAck.model_validate(lan.post("/api/ask", json=_signed_ask(a)).json()).request_id
+    lan.post("/api/ask", json=_signed_ask(b))
+    r = lan.get(f"/api/ask/{rid}", headers=_poll_headers(a, rid))
+    assert r.status_code == 200 and AskResult.model_validate(r.json()).status == "pending_pairing"
+    other = lan.get(f"/api/ask/{rid}", headers=_poll_headers(b, rid))
+    missing = lan.get("/api/ask/rq_nope", headers=_poll_headers(a, "rq_nope"))
     assert other.status_code == missing.status_code == 404
     assert other.json() == missing.json()
+    forged = _poll_headers(b, rid) | {"X-Requester-Fp": crypto.fingerprint(crypto.public_key(a))}
+    assert lan.get(f"/api/ask/{rid}", headers=forged).status_code == 401
 
 
 # --- frontend --------------------------------------------------------------------------------------------

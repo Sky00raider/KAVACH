@@ -78,13 +78,14 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 1. `trust/crypto.py` (Ed25519 raw keys, base64url, canonical JSON; `bytes` are signed as-is), `mock_issuers/make_keys.py` (keys in `keys/issuers/`, never replaced; trust list `keys/issuers/trusted_issuers.json`, `--export PATH`), `mock_issuers/issue.py` (batches with fresh salts + shuffled digests per copy; signed bank statement, marksheet, ID card; tampered statement keeping the original signature; rent agreement PDF from `demo_data/templates/rent_agreement.{md,txt}` if present; subject details in `PROFILE`, overridable by `demo_data/issuer_profile.json`)
 - 2. `issuer_check.verify_pdf` (sig over `textnorm.pdf_text_hash` UTF-8 bytes; unknown issuer or bad sig -> `invalid`), `wallet.py` (one-time holder keys under `keys/wallet/pending/`, `import_batch` checks issuer sig + digests + key ownership; `find_copy`, `status`, `claim_copy` atomic use; extra `disclosed_value(ref, claim)` for BRAIN's `decide`), `present.py` (binding signs `{credential_digest_list_hash, disclosures, nonce, aud, iat}`, copy used exactly once; attestations with the pairwise key, 7-day expiry). `tests/test_trust_crypto.py`
 
+- 3. `requester/verifier.py` (the five §6.4 checks against the requester's own trust list: `$REQUESTER_TRUST_LIST`, else `requester/data/trusted_issuers.json`, else the committed file; attestations must match the owner key pinned at pairing), `requester/common.py` (web + agent identities, signed ask/poll, `requests.json` / `nonces.json` / `proofs.json` / `owner_keys.json`), `requester/app.py` (`/r/ask` 502 when the owner is unreachable; `/r/requests` polls and verifies on arrival, newest first)
+- 5. `audit.py` (chain head read + insert in one `BEGIN IMMEDIATE` transaction), `pairing.py` (pending card on first contact, pairwise key on approval, waiting requests released or refused), `consent.py` (sig -> ts -> blocked -> nonce; parse/decide; auto REFUSED / CANNOT_CONFIRM; parse failure -> `unsupported` -> REFUSED; poll checks key, window and asker; deny -> `DECLINED` + `disclosure_denied`); `api.py` maps unknown requester/request to 404 and invalid actions to 409
+- 6. Malformed `/api/ask*` audited as `request_rejected` `{reason: malformed, route, client_ip, error_type}`, ref_id = `X-Requester-Fp` when it is 16 hex, never the body; still 422
+- 8. `ledger.py`: global `[lo, hi)` per income / percentage, re-checked at the owner's decision; issuer and attested answers both narrow it; 3 distinct attested thresholds per 30 days. `tests/test_requester.py` (two-laptop flow: bank-signed proof, five ticks), `tests/test_trust_consent.py` (attacks, ledger, audit tamper)
+
 **Next**
-3. `requester/verifier.py` + `requester/app.py`, owner `/api/ask` path
 4. `pages/trust/Verify` (requester mode): five checks, "Owner-attested" label, storage panel (M1)
-5. `pairing.py`, `consent.py`, `audit.py`, remaining `api.py` routes
-6. Malformed `/api/ask*` (validation errors) audited as `request_rejected`, `reason=malformed`, detail `{route, client_ip, error_type}` only, never the body
 7. `pages/trust/Queue` and `pages/trust/Audit` (M2)
-8. `ledger.py`
 9. `gate_mcp.py` (streamable HTTP -> `/api/ask`) + `requester/agent_client.py`
 10. `tools_mcp.py` + `agent/executor.py`
 11. `scripts/run_eval.py` and `scripts/reset_demo.py`

@@ -2,49 +2,50 @@
 
 Holds only small JSON in requester/data/ (identity, requests, received presentations/attestations);
 /r/storage lists exactly that so the demo can show no documents ever arrive. Keys never live in .json files.
-Run: uvicorn requester.app:app --host 0.0.0.0 --port 9000
+Run: uvicorn requester.app:app --host 0.0.0.0 --port 9000   (OWNER_URL=http://<owner-ip>:8000)
 """
 
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import TypeAdapter
 
 from kavach import config
-from kavach.db import new_id
 from kavach.models import RAskIn, RAskOut, RIdentity, RRequest, RStorage, RStorageFile
+from requester import common
 
-DATA_DIR = Path(os.environ.get("REQUESTER_DATA_DIR", Path(__file__).resolve().parent / "data")).resolve()
 PREVIEW_MAX = 2000
-_REQUESTS = TypeAdapter(list[RRequest])
 
 app = FastAPI(title="KAVACH requester")
 
 
 @app.get("/r/identity")
 def identity() -> RIdentity:
-    """Stub: TRUST step 3 creates the keypair in DATA_DIR on first run and derives the fingerprint."""
-    return RIdentity(name="Ramesh Kumar", type="person", fingerprint="a1b2c3d4e5f60718", owner_url=config.OWNER_URL)
+    ident = common.Identity("web")
+    return RIdentity(name=ident.name, type=ident.type, fingerprint=ident.fingerprint, owner_url=config.OWNER_URL)
 
 
 @app.post("/r/ask")
 def ask(body: RAskIn) -> RAskOut:
-    """Stub: TRUST step 3 creates a nonce, signs, calls the owner's /api/ask and records the request."""
-    return RAskOut(local_id=f"l_{uuid4().hex[:10]}", request_id=new_id("rq"), status="pending_pairing")
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(422, "question is empty")
+    ident = common.Identity("web")
+    try:
+        ack, nonce = common.http_ask(ident, question[:500])
+    except common.OwnerError as exc:
+        raise HTTPException(502, str(exc)) from None
+    rec = common.record_request(ident, question[:500], ack, nonce)
+    return RAskOut(local_id=rec.local_id, request_id=rec.request_id, status=rec.status)
 
 
 @app.get("/r/requests")
 def requests() -> list[RRequest]:
-    """Stored requests, web and agent. TRUST step 3 polls the owner and verifies on arrival."""
-    path = DATA_DIR / "requests.json"
-    return _REQUESTS.validate_json(path.read_bytes()) if path.is_file() else []
+    """Stored requests, web and agent, newest first. Polls the owner for open ones and verifies on arrival."""
+    return list(reversed(common.refresh_all()))
 
 
 def _preview(text: str) -> str:
@@ -57,10 +58,11 @@ def _preview(text: str) -> str:
 
 @app.get("/r/storage")
 def storage() -> RStorage:
-    if not DATA_DIR.is_dir():
+    d = common.data_dir()
+    if not d.is_dir():
         return RStorage(files=[])
     files = [RStorageFile(name=p.name, size=p.stat().st_size, preview_json=_preview(p.read_text(encoding="utf-8")))
-             for p in sorted(DATA_DIR.iterdir()) if p.is_file() and p.suffix == ".json"]
+             for p in sorted(d.iterdir()) if p.is_file() and p.suffix == ".json"]
     return RStorage(files=files)
 
 

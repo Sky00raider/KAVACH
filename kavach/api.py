@@ -19,6 +19,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -140,6 +142,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="KAVACH owner API", lifespan=lifespan)
+_FP = re.compile(r"^[0-9a-f]{16}$")
+
+
+@app.exception_handler(RequestValidationError)
+async def audit_malformed_ask(request: Request, exc: RequestValidationError):
+    """Malformed /api/ask* requests are audited (hard rule 6) with route, client and error type only, never the
+    body; the response is FastAPI's usual 422."""
+    path = request.url.path
+    if path == "/api/ask" or path.startswith("/api/ask/"):
+        fp = request.headers.get("x-requester-fp", "")
+        errors = exc.errors()
+        audit.log("request_rejected", fp if _FP.match(fp) else None, {
+            "reason": "malformed", "route": "/api/ask" if path == "/api/ask" else "/api/ask/{id}",
+            "client_ip": request.client.host if request.client else None,
+            "error_type": str(errors[0].get("type", "invalid")) if errors else "invalid"})
+    return await request_validation_exception_handler(request, exc)
 owner = APIRouter(prefix="/api", dependencies=[Depends(require_owner)])
 public = APIRouter(prefix="/api")
 
@@ -356,12 +374,20 @@ def queue() -> QueueOut:
 
 @owner.post("/requesters/{fp}/decision")
 def requester_decision(fp: str, body: RequesterDecisionIn) -> Requester:
-    return pairing.decide(fp, body.approve)
+    try:
+        return pairing.decide(fp, body.approve)
+    except pairing.UnknownRequester:
+        raise HTTPException(404, "requester not found") from None
 
 
 @owner.post("/requests/{request_id}/decision")
 def request_decision(request_id: str, body: RequestDecisionIn) -> RequestView:
-    return consent.decide_request(request_id, body.action)
+    try:
+        return consent.decide_request(request_id, body.action)
+    except consent.RequestNotFound:
+        raise HTTPException(404, "request not found") from None
+    except consent.RequestConflict as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 @owner.get("/wallet")
