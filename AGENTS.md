@@ -71,6 +71,7 @@ Progress lives in docs/STATUS.md; update your track's section in every commit th
 
 ## Tests and commits
 - Every module gets pytest tests. Tests that call Ollama are marked `@pytest.mark.llm`.
+- Tests not marked `llm` never call Ollama: mock `kavach.brain.llm`, or rely on the autouse fixture in `tests/conftest.py` that replaces parse_question's model call with a keyword fake.
 - Run `pytest -m "not llm"` before every commit; it must pass.
 - Small commits, one logical change each, Conventional Commits with the track as scope: `feat(brain): hybrid search`, `fix(trust): nonce reuse check`, `docs(contract): add wallet endpoint`.
 - Never commit keys, `kavach.db`, `vault/`, `private/` or anything under `.gitignore`.

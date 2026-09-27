@@ -214,6 +214,7 @@ planner.plan(instruction: str) -> Plan                # validated, never execute
 crypto.canonical(obj) -> bytes; crypto.sign(priv, obj) -> str; crypto.verify(pub, obj, sig) -> bool
 issuer_check.verify_pdf(path: Path) -> SignatureResult
 wallet.find_copy(issuer_claim: str) -> CredentialRef | None   # unused copy containing the claim
+wallet.disclosed_value(ref: CredentialRef, issuer_claim: str) -> ClaimValue   # the value the issuer signed for it in that copy (decide's ISSUER_PROOF result)
 wallet.status() -> WalletStatus
 present.build_presentation(ref: CredentialRef, issuer_claim: str, nonce: str, aud: str) -> dict
 present.build_attestation(claim: Claim, answer: bool, requester_fp: str, nonce: str) -> dict

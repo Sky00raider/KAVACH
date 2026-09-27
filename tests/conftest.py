@@ -27,3 +27,37 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "kavach.db")
     db.init_db()
     return db
+
+
+def fake_parse_map(text: str):
+    """Keyword stand-in for parse_question's one model call. Normalisation and validation still run."""
+    import re
+
+    from kavach.brain.parse_question import _Mapped
+
+    low = text.lower()
+    n = re.search(r"\d+", text)
+    t = int(n.group()) if n else None
+    if re.search(r"earn|income|salary", low):
+        return _Mapped(claim="income", threshold=t)
+    if re.search(r"percent|marks|score", low):
+        return _Mapped(claim="percentage", threshold=t)
+    if re.search(r"\bage\b|adult|\bold\b|\d\+", low):
+        return _Mapped(claim="age", threshold=t or 18)
+    if "default" in low:
+        return _Mapped(claim="loan_default_12m")
+    if "pass" in low:
+        return _Mapped(claim="result")
+    if "board" in low:
+        return _Mapped(claim="board")
+    return _Mapped(claim="unsupported")
+
+
+@pytest.fixture(autouse=True)
+def _no_ollama_outside_llm_tests(request, monkeypatch):
+    """Tests not marked `llm` never call Ollama: questions reaching parse_question (consent, MCP, eval) are
+    mapped by `fake_parse_map` instead of the model."""
+    if request.node.get_closest_marker("llm") is None:
+        from kavach.brain import parse_question
+
+        monkeypatch.setattr(parse_question, "_map", fake_parse_map)
