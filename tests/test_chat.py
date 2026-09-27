@@ -23,11 +23,14 @@ def fake(monkeypatch):
     state = SimpleNamespace(chunks=[RENT, LANDLORD], reply="", messages=None, calls=0, fail_after=None)
 
     def fake_search(query, k=8):
+        state.search_k = k
         return state.chunks[:k]
 
-    def fake_stream(messages, model=None):
+    def fake_stream(messages, model=None, stats=None):
         state.calls += 1
         state.messages = messages
+        if stats is not None:
+            stats["prompt_eval_count"] = 321
         for i in range(0, len(state.reply), 7):
             if state.fail_after is not None and i >= state.fail_after:
                 raise llm.LLMError("ollama died")
@@ -60,6 +63,7 @@ def test_stream_order_and_tokens_join_to_answer(fake):
                                                                         (2, LANDLORD.chunk_id, "note: landlord.md")]
     done = events[-1].data
     assert 0 <= done.first_token_ms <= done.latency_ms
+    assert done.prompt_tokens == 321
 
 
 def test_sync_answer_matches_stream(fake):
@@ -74,6 +78,7 @@ def test_empty_vault_skips_the_model(fake):
     events, final = _final()
     assert fake.calls == 0
     assert [e.event for e in events] == ["meta", "token", "final", "done"]
+    assert events[-1].data.prompt_tokens is None
     assert final.answer == chat.NOT_IN_VAULT and not final.citation_ok
     assert final.flags == ["no_context", "not_in_vault"] and final.citations == []
 
@@ -116,11 +121,59 @@ def test_history_is_capped_and_stripped_of_old_citations(fake, monkeypatch):
     assert [m["content"] for m in middle] == [f"turn {i}" for i in range(4, 10)]
     assert [m["role"] for m in middle] == ["user", "assistant"] * 3
 
-    monkeypatch.setattr(chat, "HISTORY_CHARS", 20)
-    long = [ChatTurn(role="user", content="a" * 15), ChatTurn(role="assistant", content="b" * 10),
-            ChatTurn(role="user", content="c" * 8)]
-    _final("q", long)
-    assert [m["content"] for m in fake.messages[1:-1]] == ["b" * 10, "c" * 8]
+
+def _chunk(i, doc="d_a", score=1.0, text=None):
+    return ScoredChunk(chunk_id=f"c_{i}", doc_id=doc, locator=f"page {i}", score=score, text=text or f"chunk {i}.")
+
+
+def test_estimate_tokens_counts_every_digit():
+    assert chat.estimate_tokens("62,000.00") == 9
+    assert chat.estimate_tokens("Salary credit") == 2 + 2  # 6 letters -> 2, 6 letters -> 2
+    assert chat.estimate_tokens("") == 0
+
+
+def test_context_budget_trims_history_first_then_lowest_chunks(fake, monkeypatch):
+    fake.reply = "Yes [1]."
+    fake.chunks = [_chunk(1, "d_1", text="1" * 40), _chunk(2, "d_2", text="2" * 40), _chunk(3, "d_3", text="3" * 40)]
+    turns = [ChatTurn(role="user", content="9" * 30), ChatTurn(role="assistant", content="8" * 30)]
+    monkeypatch.setattr(chat, "CONTEXT_TOKENS", 150)
+    events, _ = _final("q", turns)
+    assert [m["content"] for m in fake.messages[1:-1]] == ["8" * 30]
+    assert len(events[0].data.chunks) == 3
+
+    monkeypatch.setattr(chat, "CONTEXT_TOKENS", 85)
+    events, _ = _final("q", turns)
+    assert fake.messages[1:-1] == []
+    assert [r.chunk_id for r in events[0].data.chunks] == ["c_1", "c_2"]
+
+    monkeypatch.setattr(chat, "CONTEXT_TOKENS", 1)
+    events, _ = _final("q", turns)
+    assert [r.chunk_id for r in events[0].data.chunks] == ["c_1"]  # the best chunk always stays
+
+
+def test_retrieval_caps_per_document_k_and_score_floor(fake):
+    fake.reply = "x [1]."
+    fake.chunks = [_chunk(1, "d_a", 1.0), _chunk(2, "d_a", 0.9), _chunk(3, "d_a", 0.8), _chunk(4, "d_b", 0.7),
+                   _chunk(5, "d_c", 0.6), _chunk(6, "d_d", 0.5), _chunk(7, "d_e", 0.4), _chunk(8, "d_f", 0.35)]
+    refs = _final()[0][0].data.chunks
+    assert fake.search_k == chat.SEARCH_K
+    assert [r.chunk_id for r in refs] == ["c_1", "c_2", "c_4", "c_5", "c_6", "c_7"]  # 2 per doc, k = 6
+
+    fake.chunks = [_chunk(1, "d_a", 1.0), _chunk(2, "d_b", 0.5), _chunk(3, "d_c", 0.29), _chunk(4, "d_d", 0.2)]
+    assert [r.chunk_id for r in _final()[0][0].data.chunks] == ["c_1", "c_2"]
+
+    fake.chunks = [_chunk(1, "d_a", 1.0), _chunk(2, "d_b", 0.1), _chunk(3, "d_c", 0.05)]
+    assert [r.chunk_id for r in _final()[0][0].data.chunks] == ["c_1", "c_2"]  # at least 2 even below 0.3
+
+
+def test_model_text_collapses_tables_but_quotes_use_stored_text(fake):
+    table = "Date   | Description |  | Credit\n\n\n2026-08-01 |  SALARY  |   | 62,000.00\n----------\n......"
+    assert chat.model_text(table) == "Date | Description | Credit\n2026-08-01 | SALARY | 62,000.00\n-\n."
+    fake.chunks = [_chunk(1, text="Credits:    salary    62,000.00 on 1 Aug.")]
+    fake.reply = "Your salary was 62,000 [1]."
+    final = _final()[1]
+    assert "Credits: salary 62,000.00 on 1 Aug." in fake.messages[-1]["content"]
+    assert final.citations[0].quote == "Credits:    salary    62,000.00 on 1 Aug."
 
 
 # --- citation check ----------------------------------------------------------------------------------------

@@ -13,6 +13,7 @@ cannot be retried without duplicating them.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any, TypeVar
 
@@ -23,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from kavach import config
 
 T = TypeVar("T", bound=BaseModel)
+log = logging.getLogger(__name__)
 
 CHAT_PATH = "/api/chat"
 EMBED_PATH = "/api/embed"
@@ -91,7 +93,13 @@ def chat(messages: list[dict], model: str | None = None) -> str:
     return _content(_post(CHAT_PATH, chat_request(messages, model, stream=False)))
 
 
-def chat_stream(messages: list[dict], model: str | None = None) -> Iterator[str]:
+STREAM_STATS = ("prompt_eval_count", "prompt_eval_duration", "eval_count", "eval_duration", "load_duration",
+                "total_duration")
+
+
+def chat_stream(messages: list[dict], model: str | None = None, stats: dict[str, int] | None = None) -> Iterator[str]:
+    """Answer pieces as Ollama streams them. `stats`, when given, receives the final message's counters
+    (STREAM_STATS; durations in ns), which are also logged at debug level."""
     body = chat_request(messages, model, stream=True)
     try:
         with _client().stream("POST", CHAT_PATH, json=body, timeout=STREAM_TIMEOUT) as resp:
@@ -108,6 +116,10 @@ def chat_stream(messages: list[dict], model: str | None = None) -> Iterator[str]
                 if piece:
                     yield piece
                 if data.get("done"):
+                    counters = {k: int(data[k]) for k in STREAM_STATS if isinstance(data.get(k), int)}
+                    if stats is not None:
+                        stats.update(counters)
+                    log.debug("chat stream stats: %s", counters)
                     return
     except (httpx.HTTPError, ValueError) as exc:
         raise LLMError(f"Ollama stream failed: {exc!r}") from exc

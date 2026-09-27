@@ -102,6 +102,15 @@ def test_chat_stream_yields_pieces_until_done(ollama):
     assert timeout["read"] == 120.0 and timeout["connect"] == 5.0
 
 
+def test_chat_stream_reports_final_stats(ollama):
+    ollama((200, _ndjson({"message": {"content": "Hi"}, "done": False},
+                         {"message": {"content": ""}, "done": True, "prompt_eval_count": 1540,
+                          "prompt_eval_duration": 52_000_000_000, "eval_count": 23, "model": "x"})))
+    stats: dict[str, int] = {}
+    assert list(llm.chat_stream(MSGS, stats=stats)) == ["Hi"]
+    assert stats == {"prompt_eval_count": 1540, "prompt_eval_duration": 52_000_000_000, "eval_count": 23}
+
+
 def test_chat_stream_error_line_raises(ollama):
     ollama((200, _ndjson({"message": {"content": "partial"}, "done": False}, {"error": "model crashed"})))
     gen = llm.chat_stream(MSGS)

@@ -1,7 +1,10 @@
 """Ask my vault: cited answers, sync and streamed (CONTRACT §10, BUILD_PLAN §4.5).
 
-Retrieval is hybrid search (`embed.search`, top 8); graph neighbours (step 6) and current facts (step 7) are
-added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
+Retrieval is hybrid search (`embed.search`): up to TOP_K chunks, at most MAX_PER_DOC per document, hits below
+MIN_SCORE dropped once MIN_CHUNKS are kept; history + chunk text is then held to CONTEXT_TOKENS (estimated,
+history trimmed first), and chunk text is compacted (`model_text`) before it is sent. On a CPU laptop prefill
+runs at ~25-30 tokens/s, so prompt size is first-token latency. Graph neighbours (step 6) and current facts
+(step 7) are added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
 their contents are untrusted data, never instructions. The model only writes the answer; the citation check
 is plain code over the finished text.
 
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections import Counter
 from collections.abc import Iterator
 
 from kavach.brain import embed, llm
@@ -39,9 +43,13 @@ from kavach.models import (
     ScoredChunk,
 )
 
-TOP_K = 8
+TOP_K = 6
+SEARCH_K = 24         # candidates searched before the per-document cap and score floor
+MAX_PER_DOC = 2
+MIN_SCORE = 0.3       # normalised hybrid score (the best chunk is near 1)
+MIN_CHUNKS = 2        # kept even below MIN_SCORE
 HISTORY_TURNS = 6
-HISTORY_CHARS = 3000
+CONTEXT_TOKENS = 1500  # estimated tokens of history + chunk text per prompt; CPU prefill is ~25-30 tok/s
 QUOTE_CHARS = 200
 NOT_IN_VAULT = "I don't have that in your vault."
 
@@ -60,9 +68,24 @@ _CITE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(\[])|\n+")
 _WORD = re.compile(r"\w")
 _DONT_HAVE = re.compile(r"\b(?:dont|do not) have that\b")
+_TOKEN_EST = re.compile(r"\d|[^\W\d_]+|[^\w\s]")
+_LETTERS_PER_TOKEN = 5
+_RULE = re.compile(r"([-=_.*~·•])\1{2,}")       # ----, ====, .... table rules and leaders
+_CELL_BARS = re.compile(r"[ \t]*\|(?:[ \t]*\|)*[ \t]*")  # | cell | separators, repeated bars
+_SPACES = re.compile(r"[ \t ]{2,}")
+_BLANK_LINES = re.compile(r"\n[ \t]*(?:\n[ \t]*)+")
 
 
 # --- prompt ------------------------------------------------------------------------------------------------
+
+
+def model_text(text: str) -> str:
+    """Chunk text as sent to the model: table whitespace and repeated separators collapsed (every one costs
+    prefill time). Stored text, locators and citation quotes use the original."""
+    text = _RULE.sub(r"\1", text)
+    text = _CELL_BARS.sub(" | ", text)
+    text = _SPACES.sub(" ", text)
+    return _BLANK_LINES.sub("\n", text).strip()
 
 
 def _escape(text: str) -> str:
@@ -71,27 +94,52 @@ def _escape(text: str) -> str:
 
 
 def _context(chunks: list[ScoredChunk]) -> str:
-    parts = [f'<chunk n="{n}" source="{_escape(c.locator).replace(chr(34), chr(39))}">\n{_escape(c.text)}\n</chunk>'
-             for n, c in enumerate(chunks, 1)]
+    parts = [f'<chunk n="{n}" source="{_escape(c.locator).replace(chr(34), chr(39))}">\n'
+             f'{_escape(model_text(c.text))}\n</chunk>' for n, c in enumerate(chunks, 1)]
     return "<vault>\n" + "\n".join(parts) + "\n</vault>"
 
 
-def _history(history: list[ChatTurn]) -> list[dict]:
-    """Last HISTORY_TURNS turns within HISTORY_CHARS, oldest dropped first. Old `[n]` markers are stripped:
-    they point at chunks of an earlier retrieval."""
-    kept: list[dict] = []
-    used = 0
-    for turn in reversed(history[-HISTORY_TURNS:]):
-        content = _CITE.sub("", turn.content).strip()
-        if used + len(content) > HISTORY_CHARS:
+def estimate_tokens(text: str) -> int:
+    """Rough prompt size for a Qwen-style tokenizer: every digit and punctuation mark is one token, a run of
+    letters one token per 5 characters (rounded up). Amount-heavy text (statements) is digit-dominated."""
+    return sum(1 if len(m) == 1 else -(-len(m) // _LETTERS_PER_TOKEN) for m in _TOKEN_EST.findall(text))
+
+
+def retrieve(question: str) -> list[ScoredChunk]:
+    """Up to TOP_K search hits, best first: at most MAX_PER_DOC per document, and hits below MIN_SCORE only
+    while fewer than MIN_CHUNKS are kept."""
+    picked: list[ScoredChunk] = []
+    per_doc: Counter[str] = Counter()
+    for chunk in embed.search(question, k=SEARCH_K):
+        if len(picked) == TOP_K or (chunk.score < MIN_SCORE and len(picked) >= MIN_CHUNKS):
             break
-        kept.append({"role": turn.role, "content": content})
-        used += len(content)
-    return kept[::-1]
+        if per_doc[chunk.doc_id] < MAX_PER_DOC:
+            picked.append(chunk)
+            per_doc[chunk.doc_id] += 1
+    return picked
 
 
-def build_messages(question: str, history: list[ChatTurn], chunks: list[ScoredChunk]) -> list[dict]:
-    return [{"role": "system", "content": SYSTEM_PROMPT}, *_history(history),
+def _history(history: list[ChatTurn]) -> list[dict]:
+    """Last HISTORY_TURNS turns. Old `[n]` markers are stripped: they point at chunks of an earlier retrieval."""
+    return [{"role": t.role, "content": _CITE.sub("", t.content).strip()} for t in history[-HISTORY_TURNS:]]
+
+
+def fit_context(history: list[dict], chunks: list[ScoredChunk]) -> tuple[list[dict], list[ScoredChunk]]:
+    """Keep history + chunk text within CONTEXT_TOKENS: drop the oldest history first, then the lowest-ranked
+    chunks, never the best chunk."""
+    history, chunks = list(history), list(chunks)
+    total = (sum(estimate_tokens(m["content"]) for m in history)
+             + sum(estimate_tokens(model_text(c.text)) for c in chunks))
+    while total > CONTEXT_TOKENS and history:
+        total -= estimate_tokens(history.pop(0)["content"])
+    while total > CONTEXT_TOKENS and len(chunks) > 1:
+        total -= estimate_tokens(model_text(chunks.pop().text))
+    return history, chunks
+
+
+def build_messages(question: str, history: list[dict], chunks: list[ScoredChunk]) -> list[dict]:
+    """`history` and `chunks` as returned by `fit_context`."""
+    return [{"role": "system", "content": SYSTEM_PROMPT}, *history,
             {"role": "user", "content": f"{_context(chunks)}\n\nQuestion: {question}"}]
 
 
@@ -166,18 +214,19 @@ def check(answer: str, refs: list[ChunkRef], chunks: list[ScoredChunk]) -> ChatF
 def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]:
     """§10 events: meta, token..., final, done. An LLMError mid-stream propagates (api.sse reports it)."""
     start = time.perf_counter()
-    chunks = embed.search(question, k=TOP_K)
+    history_msgs, chunks = fit_context(_history(history), retrieve(question))
     refs = [ChunkRef(n=n, chunk_id=c.chunk_id, doc_id=c.doc_id, locator=c.locator) for n, c in enumerate(chunks, 1)]
     yield ChatMetaEvent(data=ChatMetaData(entities_used=[], chunks=refs))
 
     first_token_ms: int | None = None
+    stats: dict[str, int] = {}
     if not chunks:
         first_token_ms = int((time.perf_counter() - start) * 1000)
         yield ChatTokenEvent(data=ChatTokenData(text=NOT_IN_VAULT))
         final = ChatFinal(answer=NOT_IN_VAULT, citations=[], citation_ok=False, flags=["no_context", "not_in_vault"])
     else:
         pieces: list[str] = []
-        for piece in llm.chat_stream(build_messages(question, history, chunks)):
+        for piece in llm.chat_stream(build_messages(question, history_msgs, chunks), stats=stats):
             if first_token_ms is None:
                 first_token_ms = int((time.perf_counter() - start) * 1000)
             pieces.append(piece)
@@ -187,7 +236,8 @@ def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]
     yield ChatFinalEvent(data=final)
     latency_ms = int((time.perf_counter() - start) * 1000)
     yield ChatDoneEvent(data=ChatDoneData(latency_ms=latency_ms,
-                                          first_token_ms=latency_ms if first_token_ms is None else first_token_ms))
+                                          first_token_ms=latency_ms if first_token_ms is None else first_token_ms,
+                                          prompt_tokens=stats.get("prompt_eval_count")))
 
 
 def answer(question: str, history: list[ChatTurn]) -> ChatResult:
