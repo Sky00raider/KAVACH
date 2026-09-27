@@ -269,6 +269,25 @@ def test_partial_answer_with_not_in_vault_sentence(fake):
     assert final.citation_ok and final.flags == ["not_in_vault"]
 
 
+@pytest.mark.parametrize("reply, answer", [
+    ("I don't have that in your vault. [1][2]", "I don't have that in your vault."),
+    ("I don't have that in your vault.\n[1][2]", "I don't have that in your vault."),
+    ("I don't have that [1, 2].", "I don't have that."),
+])
+def test_not_in_vault_answer_drops_its_citations(fake, reply, answer):
+    fake.reply = reply
+    final = _final()[1]
+    assert final.answer == answer and final.citations == []
+    assert final.flags == ["not_in_vault"] and not final.citation_ok
+
+
+def test_partial_answer_keeps_citations_outside_the_not_in_vault_clause(fake):
+    fake.reply = "Your landlord is Ramesh [2], but I don't have that phone number [1]. Rent is 15000 [1]."
+    final = _final()[1]
+    assert final.answer == "Your landlord is Ramesh [2], but I don't have that phone number. Rent is 15000 [1]."
+    assert [c.n for c in final.citations] == [1, 2] and final.citation_ok and final.flags == ["not_in_vault"]
+
+
 def test_says_not_in_vault_needs_the_phrase():
     assert not chat.says_not_in_vault("You have that in note 2 [1].")
     assert not chat.says_not_in_vault("I don't have thatched roofs [1].")

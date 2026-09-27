@@ -13,7 +13,9 @@ is plain code over the finished text.
 - `tampered_source_excluded`: a document with signature_status `invalid` would have been selected; its chunks are
   never used and its path is listed in `excluded_docs`.
 - `no_context`: search returned no chunks; the model is not called and the answer is the fixed NOT_IN_VAULT.
-- `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored).
+- `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored). Citations inside
+  a "don't have that" clause (split at `,;:` and "but") are dropped from the answer and ignored: a small model
+  sometimes writes `I don't have that in your vault. [1][2]`, which would otherwise read as a partial answer.
 - `no_citation`: the answer has no `[n]` and is not a `not_in_vault` answer.
 - `invalid_citation`: some `[n]` is not a supplied chunk number.
 - `uncited_sentence`: some sentence has no `[n]` (a "don't have that" sentence is exempt); informational,
@@ -71,6 +73,8 @@ _CITE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(\[])|\n+")
 _WORD = re.compile(r"\w")
 _DONT_HAVE = re.compile(r"\b(?:dont|do not) have that\b")
+_CLAUSE_END = re.compile(r"(?<=[,;:])\s+(?![^\[]*\])|\s+(?=but\b)", re.IGNORECASE)  # never inside [1, 2]
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+(?=[.!?,;:]|$)")
 _TOKEN_EST = re.compile(r"\d|[^\W\d_]+|[^\w\s]")
 _LETTERS_PER_TOKEN = 5
 _RULE = re.compile(r"([-=_.*~·•])\1{2,}")       # ----, ====, .... table rules and leaders
@@ -183,6 +187,34 @@ def says_not_in_vault(text: str) -> bool:
     return bool(_DONT_HAVE.search(flat))
 
 
+def drop_not_in_vault_citations(text: str) -> str:
+    """Remove `[n]` from every "don't have that" clause (and a citation-only fragment right after one);
+    other clauses keep theirs."""
+    def clean(clause: str) -> str:
+        if not (_CITE.search(clause) and says_not_in_vault(clause)):
+            return clause
+        return _SPACE_BEFORE_PUNCT.sub("", _CITE.sub("", clause))
+
+    pieces = re.split(f"({_SENTENCE_END.pattern})", text)  # text, separator, text, ...
+    out: list[str] = []
+    after_nib = False
+    for i in range(0, len(pieces), 2):
+        piece = pieces[i]
+        if after_nib and piece.strip() and not _WORD.search(_CITE.sub("", piece)):
+            if out:
+                out[-1] = ""  # drop the separator before the dropped fragment
+            out += ["", pieces[i + 1] if i + 1 < len(pieces) else ""]
+            continue
+        if piece.strip():
+            after_nib = says_not_in_vault(piece)
+        seps = _CLAUSE_END.findall(piece)
+        clauses = _CLAUSE_END.split(piece)
+        out.append(clean(clauses[0]) + "".join(sep + clean(c) for sep, c in zip(seps, clauses[1:])))
+        if i + 1 < len(pieces):
+            out.append(pieces[i + 1])
+    return "".join(out)
+
+
 def _quote(chunk_text: str, cited_by: list[str]) -> str:
     """The chunk sentence sharing the most search tokens with the answer sentences that cite it (first on a
     tie), cut to QUOTE_CHARS on a word boundary. Always an exact substring of the chunk."""
@@ -198,6 +230,7 @@ def _quote(chunk_text: str, cited_by: list[str]) -> str:
 def check(answer: str, refs: list[ChunkRef], chunks: list[ScoredChunk]) -> ChatFinal:
     """Citations, citation_ok and flags for a finished answer (see module docstring)."""
     supplied = {r.n: (r, c) for r, c in zip(refs, chunks)}
+    answer = drop_not_in_vault_citations(answer)
     parts = sentences(answer)
     numbers = cited_numbers(answer)
     flags: list[str] = []
