@@ -199,6 +199,7 @@ def test_end_to_end_drop_a_note(vault, fresh_db, monkeypatch):
         assert doc.path == "notes/rent.md" and events == ["ingested"]
         (vault / "notes" / "rent.md").unlink()
         assert _wait_for(lambda: not fresh_db.list_documents())
+        assert _wait_for(lambda: events == ["ingested", "document_removed"])
     finally:
         obs.stop()
         obs.join(timeout=5)

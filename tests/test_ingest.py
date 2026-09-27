@@ -40,16 +40,17 @@ def vault(fresh_db, tmp_path, monkeypatch):
         (root / sub).mkdir(parents=True)
     monkeypatch.setattr(config, "VAULT_DIR", root)
 
-    batches = []
+    batches, embedded = [], []
 
     def fake_embed(texts):
         batches.append(len(texts))
+        embedded.extend(texts)
         return np.tile(np.arange(config.EMBED_DIM, dtype=np.float32), (len(texts), 1))
 
     events = []
     monkeypatch.setattr(llm, "embed", fake_embed)
     monkeypatch.setattr(audit, "log", lambda event, ref_id, detail: events.append((event, ref_id, detail)) or 1)
-    return SimpleNamespace(root=root, batches=batches, events=events)
+    return SimpleNamespace(root=root, batches=batches, events=events, embedded=embedded)
 
 
 def _chunks(db, doc_id):
@@ -194,17 +195,27 @@ def test_remove_then_readd(vault, fresh_db):
     note.unlink()
     ingest.remove_file(note)
 
+    assert vault.events[-1] == ("document_removed", res.doc_id, {"path": "notes/a.md", "doc_id": res.doc_id})
     assert fresh_db.list_documents() == []
     assert fresh_db.list_documents(include_removed=True)[0].removed_at is not None
     assert _chunks(fresh_db, res.doc_id) == []
     assert fresh_db.fetch_one("SELECT * FROM facts WHERE fact_id = 'f_1'")["valid_to"] == date.today().isoformat()
     ingest.remove_file(note)  # idempotent
     ingest.remove_file(vault.root / "notes" / "never-seen.md")
+    assert [e[0] for e in vault.events].count("document_removed") == 1
 
     note.write_text("Rent is ₹15,000.", encoding="utf-8")  # same text: still re-ingested, chunks were dropped
     back = ingest.ingest_file(note)
     assert back.doc_id == res.doc_id and back.chunks_added == 1
     assert fresh_db.list_documents()[0].removed_at is None
+
+
+def test_chunks_are_embedded_with_the_document_prefix(vault, fresh_db):
+    note = vault.root / "notes" / "a.md"
+    note.write_text("Rent is ₹15,000.", encoding="utf-8")
+    res = ingest.ingest_file(note)
+    assert vault.embedded == ["search_document: Rent is ₹15,000."]
+    assert _chunks(fresh_db, res.doc_id)[0]["text"] == "Rent is ₹15,000."  # stored without the prefix
 
 
 def test_ollama_down_stores_chunks_without_vectors(vault, fresh_db, monkeypatch):

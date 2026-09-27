@@ -122,9 +122,11 @@ def _read(path: Path, source: DocSource) -> tuple[list[tuple[str, str]], str]:
 
 
 def _embed(texts: list[str]) -> list[bytes | None]:
-    """float32 BLOBs in batches; if Ollama is unavailable the chunks are stored without vectors (backfilled later)."""
+    """float32 BLOBs in batches, each text as `EMBED_DOC_PREFIX + text` (search embeds queries with
+    `EMBED_QUERY_PREFIX`). If Ollama is unavailable the chunks are stored without vectors (backfilled later)."""
+    docs = [config.EMBED_DOC_PREFIX + t for t in texts]
     try:
-        parts = [llm.embed(texts[i:i + _EMBED_BATCH]) for i in range(0, len(texts), _EMBED_BATCH)]
+        parts = [llm.embed(docs[i:i + _EMBED_BATCH]) for i in range(0, len(docs), _EMBED_BATCH)]
     except llm.LLMError as exc:
         log.warning("embedding failed, %d chunks stored without vectors: %s", len(texts), exc)
         return [None] * len(texts)
@@ -184,9 +186,12 @@ def ingest_file(path: Path) -> IngestResult:
 
 
 def remove_file(path: Path) -> None:
-    """Mark the document removed, drop its chunks, close its facts and edges. Unknown paths are ignored."""
-    row = db.get_document_by_path(vault_relative(Path(path)))
+    """Mark the document removed, drop its chunks, close its facts and edges, audit `document_removed`.
+    Unknown or already-removed paths are ignored."""
+    rel = vault_relative(Path(path))
+    row = db.get_document_by_path(rel)
     if row is None or row["removed_at"] is not None:
         return None
     db.remove_document(row["doc_id"], utc_now(), closed_on=date.today().isoformat())
+    audit.log("document_removed", row["doc_id"], {"path": rel, "doc_id": row["doc_id"]})
     return None

@@ -46,6 +46,7 @@ Interfaces live in `CONTRACT.md`. This file covers behaviour, order and dates.
 
 ### 4.2 Search (BRAIN)
 Embeddings as float32 BLOBs, loaded into one NumPy matrix cached in memory (invalidated on ingest). Score = 0.7 cosine + 0.3 keyword (BM25-lite over tokens). Top-k 8.
+nomic task prefixes: ingest embeds every chunk as `config.EMBED_DOC_PREFIX + text` (done in step 2); step 3 search must embed every query as `config.EMBED_QUERY_PREFIX + query`. Chunk text is stored without the prefix.
 
 ### 4.3 Entities and graph (BRAIN)
 - Per chunk, structured output `{entities:[{type,name,attrs}], relations:[{src,rel,dst,date?}]}`.
