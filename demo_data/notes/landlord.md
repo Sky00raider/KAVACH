@@ -1,6 +1,6 @@
 # Landlord
 
-The landlord is Ravi.
+The landlord is Ravi Kumar.
 
 I normally talk to him through WhatsApp about the flat and rent.
 
