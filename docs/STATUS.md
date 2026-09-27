@@ -87,10 +87,12 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 9. `gate_mcp.py` forwards every tool to `127.0.0.1:API_PORT/api/ask*` / `/api/claims` with `X-Channel: mcp` (owner errors surface as MCP `ToolError` text; `request_id` limited to `[A-Za-z0-9_-]`); `requester/agent_client.py` (own `agent` keypair, asks via MCP streamable HTTP, polls `get_answer`, verifies, records `via: "agent"`; `python -m requester.agent_client [questions] --wait 120`)
 - 10. `tools_mcp.py` (real files: `.eml` with proof JSON attachments from answered requests, `.ics` with a 9 am alarm, rental form PDF, notes under `vault/notes/` never overwritten; no network code) + `agent/executor.py` (only `approved` tasks; re-validates recipient against graph emails or the typed instruction, attachments and future ISO dates; runs valid calls over stdio with the runtime paths in the child env and no owner token; invalid calls reported "not run"); `api.py` records executor exceptions as failed results. `tests/test_mcp.py` (gate forwarding, agent end-to-end, tools, executor)
 
+- 4. `pages/trust/Verify`: ask box + suggested questions, request cards (web / agent·MCP), five checks animating in, "Owner-attested" callout, DECLINED / REFUSED / CANNOT_CONFIRM wording, "What this laptop stores" panel with JSON previews. Verified live (built UI on :9000, owner on :8000, gate on :8001): web + MCP agent requests both show five ticks
+- 7. `pages/trust/Queue`: wallet strip (low-copy warning), pairing cards with fingerprints, proposals (claim in words, proposed answer, trust level, favourable or not, the offered actions only), task planner box + planned tasks with per-call previews + approve/reject, outbox list; `pages/trust/Audit`: chain badge (intact / broken at #n), event groups, filter, expandable rows with hashes; shared wording in `pages/trust/format.ts`. Verified live with headless Edge screenshots
+- 11a. `scripts/reset_demo.py`: issuer keys, signed + tampered PDFs in `demo_data/generated/`, 20-copy batch per credential type into the wallet, trust list into the requester data dir, vault copy (tampered PDF and `inbox_note.md` held back), pre-ingest, WAL checkpoint then backup; `--restore` also empties the outbox
+
 **Next**
-4. `pages/trust/Verify` (requester mode): five checks, "Owner-attested" label, storage panel (M1)
-7. `pages/trust/Queue` and `pages/trust/Audit` (M2)
-11. `scripts/run_eval.py` and `scripts/reset_demo.py`
+11b. `scripts/run_eval.py`
 12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe; CONTRACT §12 change via CONTRACT owner
 13. (low priority) Document the §10 stream in OpenAPI (`responses=` on `/api/chat/stream` with the `ChatEvent` models) so `gen:types` covers it; then drop the derived stream types in `client.ts`
 14. (low priority) `api.py`: map `brain.llm.LLMError` to `503` on `/api/chat` (today it surfaces as `500`; the stream already sends an `error` event)

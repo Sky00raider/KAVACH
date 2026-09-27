@@ -1,10 +1,11 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
 import pytest
 
-from kavach import config
+from kavach import config, db
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
@@ -38,6 +39,17 @@ def test_reset_then_restore(runtime):
     assert not (runtime / "vault" / "notes" / "inbox_note.md").exists()
     assert not (runtime / "outbox" / "old.eml").exists()
     assert (runtime / "kavach.db.bak").exists()
+    pdfs = {p.name for p in (runtime / "vault" / "pdfs").iterdir()}
+    assert {"bank_statement_signed.pdf", "marksheet_signed.pdf", "id_card_signed.pdf"} <= pdfs
+    assert "bank_statement_TAMPERED.pdf" not in pdfs  # held back for the live moment
+    assert (runtime / "demo_data" / "generated" / "bank_statement_TAMPERED.pdf").exists()
+    from kavach.trust import wallet
+    assert {(t.credential_type, t.unused) for t in wallet.status().by_type} == {
+        ("income_proof", 20), ("marksheet", 20), ("id_card", 20)}
+    assert set(json.loads((reset_demo.requester_data_dir() / "trusted_issuers.json").read_text())) == {
+        "mock_bank", "mock_board", "mock_govt"}
+    signed = [d for d in db.list_documents() if d.signature_status == "issuer_signed"]
+    assert len(signed) == 3
 
     config.DB_PATH.unlink()
     reset_demo.main(["--restore"])
