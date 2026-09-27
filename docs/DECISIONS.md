@@ -72,6 +72,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-27 | Structural edges from the owner's own note layout: in a note with a "Project: [[X]]" line every other `[[link]]` becomes `target -PART_OF-> X` (REL_TYPES permitting); each link on a "Related:" line or in the list under it becomes `X -RELATES_TO-> target` (the note's DOCUMENT without a project line) unless PART_OF already joins the pair; sourced from the chunk holding the link | The owner's layout states these links; the model's guesses from the same layout failed the one-line rule. Demo: PART_OF 2 -> 9, RELATES_TO 1 -> 10 |
 | 2026-09-27 | Model-proposed PAID edges from `doc_type = bank_statement` chunks are dropped; step 7 parses bank rows in code (debit -> owner PAID X, credit -> X PAID owner) | The model read a debit to "RAVI KUMAR" as Ravi paying the owner; a row's direction is in its column, which code can read |
 | 2026-09-27 | Vault graph and entity panel collapse edges with the same (src, rel, dst) into one line that lists every source passage | Each document keeps its own edge for provenance (Ravi Kumar LANDLORD_OF owner from landlord.md and the rent agreement), which drew as two lines |
+| 2026-09-27 | Vault hides entities with no shown edge by default; an "N unlinked" chip toggles them | Loose dots (salary, marks, utilities) added noise to the video graph; they stay one click away and in the entity list |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 

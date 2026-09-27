@@ -39,6 +39,7 @@ import {
   neighbours,
   relLabel,
   signatureView,
+  unlinkedIds,
   type EntityType,
 } from "./graph/graph"
 import type { VaultGraphHandle } from "./graph/VaultGraph"
@@ -275,6 +276,7 @@ export default function Vault() {
 
   const [hidden, setHidden] = useState<ReadonlySet<EntityType>>(() => new Set(DEFAULT_HIDDEN_TYPES))
   const [showClosed, setShowClosed] = useState(false)
+  const [showUnlinked, setShowUnlinked] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [docId, setDocId] = useState<string | null>(null)
   const [last, setLast] = useState<LastAnswer | null>(loadLastAnswer)
@@ -292,6 +294,12 @@ export default function Vault() {
     return c
   }, [graph])
   const closedCount = useMemo(() => (graph?.edges ?? []).filter((e) => e.valid_to != null).length, [graph])
+  const unlinked = useMemo(
+    () => (graph ? unlinkedIds(graph, { hiddenTypes: hidden, showClosed }) : new Set<string>()),
+    [graph, hidden, showClosed],
+  )
+  /** On the canvas: a shown type, and linked unless unlinked entities are shown. */
+  const onCanvas = (id: string) => !hidden.has(nodeType.get(id) ?? "DOCUMENT") && (showUnlinked || !unlinked.has(id))
 
   /** Per document: the entities its edges touch that the graph currently shows. */
   const docCounts = useMemo(() => {
@@ -299,10 +307,11 @@ export default function Vault() {
     if (!graph) return out
     for (const d of documents.data ?? []) {
       const ids = docEntityIds(graph, d.doc_id, showClosed)
-      out.set(d.doc_id, [...ids].filter((id) => !hidden.has(nodeType.get(id) ?? "DOCUMENT")).length)
+      out.set(d.doc_id, [...ids].filter(onCanvas).length)
     }
     return out
-  }, [graph, documents.data, showClosed, hidden, nodeType])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, documents.data, showClosed, hidden, nodeType, unlinked, showUnlinked])
 
   const docFilter = useMemo(
     () => (graph && docId ? { docId, ids: docEntityIds(graph, docId, showClosed) } : null),
@@ -312,9 +321,10 @@ export default function Vault() {
   const notice = docId ? docFilterNotice(filterDoc, docCounts.get(docId) ?? 0) : null
 
   const highlight = useMemo(() => {
-    const ids = (last?.entities_used ?? []).filter((id) => nodeType.has(id) && !hidden.has(nodeType.get(id)!))
+    const ids = (last?.entities_used ?? []).filter((id) => nodeType.has(id) && onCanvas(id))
     return new Set(ids)
-  }, [last, nodeType, hidden])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [last, nodeType, hidden, unlinked, showUnlinked])
 
   // Pick up an answer given in another tab or before this page mounted.
   useEffect(() => {
@@ -335,8 +345,9 @@ export default function Vault() {
   useEffect(() => {
     if (!selected) return
     const t = nodeType.get(selected)
-    if (!t || hidden.has(t) || (docFilter && !docFilter.ids.has(selected))) setSelected(null)
-  }, [selected, nodeType, hidden, docFilter])
+    if (!t || !onCanvas(selected) || (docFilter && !docFilter.ids.has(selected))) setSelected(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, nodeType, hidden, docFilter, unlinked, showUnlinked])
 
   function toggleType(t: EntityType) {
     setHidden((h) => {
@@ -349,6 +360,7 @@ export default function Vault() {
 
   function pickEntity(id: string, type: EntityType) {
     if (hidden.has(type)) toggleType(type)
+    if (unlinked.has(id) && !showUnlinked) setShowUnlinked(true)
     if (docFilter && !docFilter.ids.has(id)) setDocId(null)
     setSelected(id)
     requestAnimationFrame(() => graphRef.current?.focus(id))
@@ -412,6 +424,7 @@ export default function Vault() {
                 graph={graph}
                 hiddenTypes={hidden}
                 showClosed={showClosed}
+                showUnlinked={showUnlinked}
                 highlight={highlight}
                 docFilter={docFilter}
                 selected={selected}
@@ -442,6 +455,21 @@ export default function Vault() {
                   </button>
                 )
               })}
+              {(unlinked.size > 0 || showUnlinked) && (
+                <button
+                  type="button"
+                  onClick={() => setShowUnlinked((s) => !s)}
+                  aria-pressed={showUnlinked}
+                  title={showUnlinked ? "Hide entities with no link in the graph" : "Show entities with no link in the graph"}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border border-dashed bg-card/90 px-2 py-0.5 text-xs backdrop-blur transition-colors hover:border-primary/50",
+                    !showUnlinked && "text-muted-foreground",
+                  )}
+                >
+                  {showUnlinked ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+                  <span className="font-mono text-[11px]">{unlinked.size}</span> unlinked
+                </button>
+              )}
             </div>
             <div className="pointer-events-auto flex shrink-0 gap-1.5">
               {closedCount > 0 && (

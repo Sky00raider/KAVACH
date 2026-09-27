@@ -18,6 +18,7 @@ import {
   fitTransform,
   gravity,
   groupEdges,
+  unlinkedIds,
   isAlwaysLabelled,
   issuerName,
   labelRect,
@@ -115,6 +116,22 @@ describe("graph view", () => {
     const n = neighbours(dup, "e_ravi")
     expect(n.map((x) => [x.group.rel, x.group.sources.length])).toEqual([["LANDLORD_OF", 2], ["PAID", 1]])
     expect(degrees(dup).get("e_ravi")).toBe(2)
+  })
+
+  it("hides unlinked entities on request; hidden types and closed edges do not count as links", () => {
+    // e_lone has no edge; e_note is linked only to e_flat; e_rent's only other edge (to e_ravi) is closed
+    const docsHidden = { hiddenTypes: new Set(["DOCUMENT"] as const), showClosed: false }
+    expect([...unlinkedIds(GRAPH, docsHidden)]).toEqual(["e_lone"])
+    expect([...unlinkedIds(GRAPH, { hiddenTypes: new Set(["PROJECT"] as const), showClosed: false })].sort()).toEqual(
+      ["e_lone", "e_note", "e_rent"])                                   // their only links went to the project
+    expect([...unlinkedIds(GRAPH, { hiddenTypes: new Set(["PROJECT"] as const), showClosed: true })].sort()).toEqual(
+      ["e_lone", "e_note"])                                             // the closed edge links e_rent to e_ravi
+    const lonely: Graph = { nodes: [{ id: OWNER_ID, type: "PERSON", name: "Ananya Iyer" }], edges: [] }
+    expect(unlinkedIds(lonely, docsHidden).size).toBe(0)               // the owner always stays
+
+    expect(buildView(GRAPH, { ...docsHidden, showUnlinked: false }).nodes.map((n) => n.id)).toEqual(
+      [OWNER_ID, "e_ravi", "e_flat", "e_rent"])
+    expect(buildView(GRAPH, docsHidden).nodes.map((n) => n.id)).toContain("e_lone")   // default: shown
   })
 
   it("maps a document to the entities its edges touch", () => {

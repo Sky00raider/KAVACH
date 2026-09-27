@@ -63,13 +63,14 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
   graph: Graph
   hiddenTypes: ReadonlySet<EntityType>
   showClosed: boolean
+  showUnlinked: boolean
   /** Entities of the last answer: ringed, the rest dimmed. */
   highlight: ReadonlySet<string>
   /** Document filter: only these entities (and the document's edges) are shown. */
   docFilter: { docId: string; ids: ReadonlySet<string> } | null
   selected: string | null
   onSelect: (id: string | null) => void
-}>(function VaultGraph({ graph, hiddenTypes, showClosed, highlight, docFilter, selected, onSelect }, ref) {
+}>(function VaultGraph({ graph, hiddenTypes, showClosed, showUnlinked, highlight, docFilter, selected, onSelect }, ref) {
   const fg = useRef<ForceGraphMethods<N, L> | undefined>(undefined)
   const wrap = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -97,7 +98,7 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
   const hiddenKey = [...hiddenTypes].sort().join(",")
   const data = useMemo(() => {
     const prev = positions.current
-    const view = buildView(graph, { hiddenTypes, showClosed }, prev)
+    const view = buildView(graph, { hiddenTypes, showClosed, showUnlinked }, prev)
     // New nodes (a new file, a type shown again) can settle off screen: fit again once they have.
     if (view.nodes.some((n) => !prev.has(n.id))) needFit.current = true
     // Anything that changes the nodes or links re-settles from the current positions (so the rest can make
@@ -110,7 +111,7 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
     positions.current = new Map(view.nodes.map((n) => [n.id, n]))
     return view
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, hiddenKey, showClosed])
+  }, [graph, hiddenKey, showClosed, showUnlinked])
 
   // Selection emphasises the node and its neighbours; otherwise the last answer's entities (not while a
   // document filter is on: then the filter is the lens).

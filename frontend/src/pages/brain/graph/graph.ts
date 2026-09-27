@@ -143,20 +143,41 @@ function jitter(id: string): [number, number] {
   return [Math.cos(a) * 12, Math.sin(a) * 12]
 }
 
+export interface ViewOptions {
+  hiddenTypes: ReadonlySet<EntityType>
+  showClosed: boolean
+  /** Also show entities with no edge to another shown entity (default true). */
+  showUnlinked?: boolean
+}
+
 /**
- * Nodes and links for the canvas. Hidden types are left out of the simulation (they take no space).
- * Nodes seen before keep their position and pin (`prev`, keyed by id), so a new file or a toggle only
- * moves the new nodes; a new node starts next to an already placed neighbour.
+ * Entities of shown types with no shown edge to another shown entity (hidden types and, unless
+ * `showClosed`, closed edges do not count). The owner is never listed: it is always on the canvas.
  */
-export function buildView(
-  graph: Graph,
-  opts: { hiddenTypes: ReadonlySet<EntityType>; showClosed: boolean },
-  prev: ReadonlyMap<string, VNode> = new Map(),
-): { nodes: VNode[]; links: VLink[] } {
+export function unlinkedIds(graph: Graph, opts: Omit<ViewOptions, "showUnlinked">): Set<string> {
+  const shown = new Set(graph.nodes.filter((n) => !opts.hiddenTypes.has(n.type)).map((n) => n.id))
+  const linked = new Set<string>([OWNER_ID])
+  for (const g of groupEdges(graph.edges, opts.showClosed)) {
+    if (g.src !== g.dst && shown.has(g.src) && shown.has(g.dst)) {
+      linked.add(g.src)
+      linked.add(g.dst)
+    }
+  }
+  return new Set([...shown].filter((id) => !linked.has(id)))
+}
+
+/**
+ * Nodes and links for the canvas. Hidden types (and unlinked entities unless `showUnlinked`) are left
+ * out of the simulation, so they take no space. Nodes seen before keep their position and pin (`prev`,
+ * keyed by id), so a new file or a toggle only moves the new nodes; a new node starts next to an
+ * already placed neighbour.
+ */
+export function buildView(graph: Graph, opts: ViewOptions, prev: ReadonlyMap<string, VNode> = new Map()): { nodes: VNode[]; links: VLink[] } {
   const nodes: VNode[] = []
   const byId = new Map<string, VNode>()
+  const unlinked = opts.showUnlinked === false ? unlinkedIds(graph, opts) : new Set<string>()
   for (const n of graph.nodes) {
-    if (opts.hiddenTypes.has(n.type)) continue
+    if (opts.hiddenTypes.has(n.type) || unlinked.has(n.id)) continue
     const owner = n.id === OWNER_ID
     const label = shortLabel(displayName(n))
     const node: VNode = { id: n.id, type: n.type, name: n.name, label, owner, always: isAlwaysLabelled(n), r: owner ? OWNER_R : NODE_R }
