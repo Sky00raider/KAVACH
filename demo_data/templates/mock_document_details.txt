@@ -1,4 +1,4 @@
-KAVACH DEMO DOCUMENT DETAILS
+KAVACH DOCUMENT DETAILS
 
 ================================
 BANK STATEMENT
@@ -8,10 +8,10 @@ Name:
 Duk
 
 Bank:
-KAVACH Demo Bank
+Canara Bank
 
 Account:
-XXXX-XXXX-4821
+9845-2351-4821
 
 Statement Period:
 01 April 2026 - 30 September 2026
@@ -19,8 +19,6 @@ Statement Period:
 Monthly Income:
 ₹62,000
 
-Important:
-Use fictional/demo information only.
 
 ================================
 MARKSHEET
@@ -30,13 +28,13 @@ Name:
 Duk
 
 Institution:
-Ramaiah Demo University
+Ramaiah Institute of Technology
 
 Programme:
 Bachelor of Engineering
 
 CGPA:
-8.9
+9.3
 
 Result:
 PASS
@@ -49,13 +47,13 @@ Name:
 Duk
 
 Date of Birth:
-15 May 2005
+15 May 2006
 
 Institution:
-Ramaiah Demo University
+Ramaiah Institute of Technology
 
 ID Number:
-DEMO-2026-1042
+1MS24CY088
 
 Status:
 Valid
