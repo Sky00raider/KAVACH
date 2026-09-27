@@ -352,7 +352,7 @@ Chunks of documents whose `signature_status` is `invalid` are never retrieved fo
 - `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored), in whole or for part of the question.
   Citations inside a "don't have that" clause are removed from `final.answer` and not counted, so `final.answer` can differ from the joined `token` texts; the UI shows `final.answer` once it arrives.
 - `no_citation`: no `[n]` in an answer that is not `not_in_vault`.
-- `invalid_citation`: some `[n]` is not a supplied chunk.
+- `invalid_citation`: some `[n]` is not a supplied chunk, or every citation was dropped as unrelated. A supplied `[n]` whose chunk shares no content word with the sentence citing it is removed from `final.answer` and not listed in `citations`; the flag is set for that only when no citation to a supplied chunk remains.
 - `uncited_sentence`: some sentence other than a "don't have that" one has no `[n]`; informational, `citation_ok` unchanged.
 
 ## 11. MCP

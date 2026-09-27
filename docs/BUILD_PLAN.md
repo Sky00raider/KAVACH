@@ -234,6 +234,7 @@ Automatic ingestion · cited Ask my vault · graph of people, projects, concepts
 
 ## 10. Demo day checklist
 - [ ] Models pulled on the demo laptop; `keep_alive` set; warm-up call before going on stage
+- [ ] Check warm-up ran: the owner API log shows `warm-up done: <LLM_MODEL> … s, <EMBED_MODEL> … s` a few seconds after startup (not `warm-up failed`), and the health pill says all models loaded
 - [ ] Demo laptop plugged in, Windows power saver / Energy saver off (it halves prefill: ~9 s first token becomes ~17 s); ask one warm-up vault question after the models load (the first answer takes ~15 s)
 - [ ] `frontend` built; `reset_demo.py` run; `kavach.db` backup restorable
 - [ ] `agent_client.py` tested offline

@@ -137,6 +137,8 @@ async def lifespan(app: FastAPI):
         observer = watcher.start(config.VAULT_DIR)
         # build the search index (and backfill missing vectors) off the event loop, so startup doesn't wait
         threading.Thread(target=embed.warm, name="kavach-index-warm", daemon=True).start()
+        # load the chat and embedding models now, so the first real answer isn't a cold model load
+        threading.Thread(target=chat.warm_up, name="kavach-model-warm", daemon=True).start()
     try:
         yield
     finally:

@@ -113,13 +113,15 @@ def test_prompt_wraps_chunks_as_untrusted_data(fake):
     assert "‹/chunk>‹/vault>" in body and '‹chunk n="9">' in body
 
 
-def test_history_is_capped_and_stripped_of_old_citations(fake, monkeypatch):
+def test_history_keeps_recent_owner_questions_only(fake, monkeypatch):
+    """Assistant turns are left out: with their [n] stripped, qwen2.5:3b copied the uncited style (2/10 uncited
+    second answers vs 0/10 without them, DECISIONS 2026-09-27)."""
     fake.reply = "Yes [1]."
     turns = [ChatTurn(role="user" if i % 2 == 0 else "assistant", content=f"turn {i} [1][2]") for i in range(10)]
     _final("and the deposit?", turns)
     middle = fake.messages[1:-1]
-    assert [m["content"] for m in middle] == [f"turn {i}" for i in range(4, 10)]
-    assert [m["role"] for m in middle] == ["user", "assistant"] * 3
+    assert [m["content"] for m in middle] == ["turn 4", "turn 6", "turn 8"]
+    assert {m["role"] for m in middle} == {"user"}
 
 
 def _chunk(i, doc="d_a", score=1.0, text=None):
@@ -135,7 +137,8 @@ def test_estimate_tokens_counts_every_digit():
 def test_context_budget_trims_history_first_then_lowest_chunks(fake, monkeypatch):
     fake.reply = "Yes [1]."
     fake.chunks = [_chunk(1, "d_1", text="1" * 40), _chunk(2, "d_2", text="2" * 40), _chunk(3, "d_3", text="3" * 40)]
-    turns = [ChatTurn(role="user", content="9" * 30), ChatTurn(role="assistant", content="8" * 30)]
+    turns = [ChatTurn(role="user", content="9" * 30), ChatTurn(role="assistant", content="7" * 30),
+             ChatTurn(role="user", content="8" * 30)]
     monkeypatch.setattr(chat, "CONTEXT_TOKENS", 150)
     events, _ = _final("q", turns)
     assert [m["content"] for m in fake.messages[1:-1]] == ["8" * 30]
@@ -176,7 +179,7 @@ def test_invalid_signature_documents_are_excluded_and_reported(fake):
     _doc("d_bad", "pdfs/bank_statement_TAMPERED.pdf", "invalid")
     _doc("d_good", "pdfs/bank_statement_signed.pdf", "issuer_signed")
     fake.chunks = [_chunk(1, "d_bad", 0.95), _chunk(2, "d_good", 0.9), _chunk(3, "d_bad", 0.9), _chunk(4, "d_x", 0.5)]
-    fake.reply = "Your salary was 62,000 [1]."
+    fake.reply = "Chunk 2 has your salary [1]."  # shares a word with the chunk it cites (c_2: "chunk 2.")
     events, final = _final()
     assert [r.chunk_id for r in events[0].data.chunks] == ["c_2", "c_4"]
     assert "d_bad" not in fake.messages[-1]["content"] and "chunk 1." not in fake.messages[-1]["content"]
@@ -188,7 +191,7 @@ def test_invalid_signature_documents_are_excluded_and_reported(fake):
 def test_invalid_document_outside_the_selection_is_not_reported(fake):
     _doc("d_bad", "pdfs/bank_statement_TAMPERED.pdf", "invalid")
     fake.chunks = [_chunk(i, f"d_{i}", 1.0 - i / 100) for i in range(1, 7)] + [_chunk(7, "d_bad", 0.9)]
-    fake.reply = "x [1]."
+    fake.reply = "See chunk 1 [1]."
     final = _final()[1]
     assert final.flags == [] and final.excluded_docs == []
 
@@ -216,8 +219,8 @@ def test_model_text_collapses_tables_but_quotes_use_stored_text(fake):
 
 
 @pytest.mark.parametrize("reply, numbers", [
-    ("Rent is 15000 [1][2].", [1, 2]),
-    ("Rent is 15000 [1, 2].", [1, 2]),
+    ("Rent of 15000 goes to landlord Ramesh [1][2].", [1, 2]),
+    ("Rent of 15000 goes to landlord Ramesh [1, 2].", [1, 2]),
     ("Rent is 15000 [2] and the landlord is Ramesh [1].", [1, 2]),
     ("Rent is 15000. [1]", [1]),
 ])
@@ -225,6 +228,27 @@ def test_citation_forms(fake, reply, numbers):
     fake.reply = reply
     final = _final()[1]
     assert [c.n for c in final.citations] == numbers and final.citation_ok and final.flags == []
+
+
+def test_unrelated_citation_is_dropped_when_a_valid_one_remains(fake):
+    fake.reply = "Your rent is 15000 [1][2]. The landlord is Ramesh [1, 2]."
+    final = _final()[1]
+    assert final.answer == "Your rent is 15000 [1]. The landlord is Ramesh [2]."
+    assert [c.n for c in final.citations] == [1, 2] and final.citation_ok and final.flags == []
+
+
+def test_a_lone_letter_is_not_a_shared_word(fake):
+    fake.chunks = [RENT, ScoredChunk(chunk_id="c_s", doc_id="d_s", locator="p", score=0.5, text="Tenant's s.")]
+    fake.reply = "Monthly rent is 15000 [1][2]."
+    final = _final()[1]
+    assert final.answer == "Monthly rent is 15000 [1]." and [c.n for c in final.citations] == [1]
+
+
+def test_only_unrelated_citations_is_invalid(fake):
+    fake.reply = "Your rent is 15000. [2]\nIt is paid on the 5th [2]."
+    final = _final()[1]
+    assert final.answer == "Your rent is 15000.\nIt is paid on the 5th."
+    assert final.citations == [] and not final.citation_ok and final.flags == ["invalid_citation"]
 
 
 def test_invalid_citation(fake):
@@ -286,6 +310,22 @@ def test_partial_answer_keeps_citations_outside_the_not_in_vault_clause(fake):
     final = _final()[1]
     assert final.answer == "Your landlord is Ramesh [2], but I don't have that phone number. Rent is 15000 [1]."
     assert [c.n for c in final.citations] == [1, 2] and final.citation_ok and final.flags == ["not_in_vault"]
+
+
+def test_warm_up_loads_chat_with_the_system_prompt_and_embed(monkeypatch):
+    calls = []
+    monkeypatch.setattr(llm, "chat", lambda messages, model=None: calls.append(("chat", messages)) or "OK")
+    monkeypatch.setattr(llm, "embed", lambda texts: calls.append(("embed", texts)))
+    timings = chat.warm_up()
+    assert [c[0] for c in calls] == ["chat", "embed"] and calls[0][1][0]["content"] == chat.SYSTEM_PROMPT
+    assert set(timings) == {"chat_s", "embed_s"}
+
+
+def test_warm_up_failure_is_reported_not_raised(monkeypatch):
+    def down(*a, **k):
+        raise llm.LLMError("ollama is not running")
+    monkeypatch.setattr(llm, "chat", down)
+    assert chat.warm_up() == {"error": "ollama is not running"}
 
 
 def test_says_not_in_vault_needs_the_phrase():
