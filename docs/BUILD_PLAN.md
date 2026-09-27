@@ -67,6 +67,8 @@ nomic task prefixes: ingest embeds every chunk as `config.EMBED_DOC_PREFIX + tex
 4. Prompt: answer only from context, cite every sentence `[n]`, say "I don't have that" when absent.
 5. Citation check in code; set `citation_ok`.
 
+Numeric questions (amounts, dates, marks) prefer current grounded facts over raw chunks once facts exist (step 7): facts are short, verified against their source quote, and cost far fewer prompt tokens than digit-dense statement chunks.
+
 ### 4.6 Disclosure pipeline (TRUST orchestrates, BRAIN decides)
 `consent.receive`: verify sig, ts window, nonce -> pairing check -> `parse_question.parse` -> `decide.decide` -> auto-resolve `REFUSED` / `CANNOT_CONFIRM`, else queue a proposal. Owner action -> `present.build_*` -> `ledger.record` -> mark copy used -> audit.
 
@@ -141,11 +143,12 @@ You own the BRAIN track. Replace stubs with real code, in this order, tests for 
 4. chat.py sync + stream with citation check
 5. pages/brain/Ask: streaming chat, numbered citations with popovers (GET /api/chunks/{id}),
    live auto-ingest strip (poll /api/ingest/events)                          <- M1
-6. entities.py + graph-neighbour retrieval in chat
-7. extract.py with grounding, memory.py with supersession + candidates + teach;
-   "Remember this?" chips on Ask
 8. parse_question.py with amount normalisation in code before the LLM (§4.10: ₹, commas, "50k",
    "1.2 lakh", "50,000/month" -> integers; unit tests) + decide.py (pure code rules, CONTRACT §5.4)
+   Done before 6: the M2 disclosure flow runs through parse + decide and must not use stubs
+6. entities.py + graph-neighbour retrieval in chat
+7. extract.py with grounding, memory.py with supersession + candidates + teach;
+   "Remember this?" chips on Ask; numeric questions in chat prefer grounded current facts over raw chunks
 9. agent/planner.py
 10. pages/brain/Vault: documents with signature badges, entity list, graph (react-force-graph-2d),
     highlight entities_used from the last answer                             <- M3

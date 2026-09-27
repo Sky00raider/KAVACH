@@ -40,7 +40,7 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 **Blocked**
 - (none)
 
-**Models chosen:** qwen2.5:7b / qwen2.5:3b / nomic-embed-text (DECISIONS.md, Appendix A).
+**Models chosen:** qwen2.5:7b / qwen2.5:3b / nomic-embed-text (DECISIONS.md, Appendix A). Since 27 Sep the laptop default `LLM_MODEL` is qwen2.5:3b (BRAIN latency decision); 7b on a GPU host.
 
 **Model benchmark** (26 Sep, owner laptop: Ryzen 7 7730U, 16 GB, Ollama 0.34.4, CPU only; `scripts/bench_models.py --runs 3`, all models unloaded before each run; medians; embed = nomic-embed-text, dim 768)
 
@@ -63,16 +63,18 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 
 - Chat latency (before step 6): `llm.chat_stream(stats=)` captures Ollama's final counters (debug log; `done.prompt_tokens`, CONTRACT §10); `chat.retrieve` (k=6 of 24 candidates, max 2 per document, score floor 0.3 keeping >= 2), `fit_context` (~1500 estimated tokens for history + chunks, history trimmed first; estimator within 1% of Ollama's count), `model_text` (table whitespace/separators collapsed for the prompt only). Measured on the owner laptop (qwen2.5:7b, cache-busted): salary question 1627 prompt tokens / 61-66 s first token -> 1540 / 53-64 s; prefill is 25-30 tok/s, so the cap alone cannot reach < 10 s (see Next)
 - Tampered sources (CONTRACT §10, approved): `chat.retrieve` never uses chunks of `invalid`-signature documents (`db.document_status`); if one would have been selected, `final.flags` starts with `tampered_source_excluded` and `excluded_docs` lists its path; the Ask page shows a red "Ignored <file>: signature check failed" (and says so instead of "nothing matched" when only tampered files matched). Salary question now answers ₹62,000 from the signed statement (was ₹92,000 from the tampered copy) with 989 prompt tokens: first token 32-36 s on qwen2.5:7b, 12.4 s warm on qwen2.5:3b (measured only, config unchanged)
+- Laptop model decision: owner laptop is a Ryzen 7 7730U (8 cores / 16 threads, Ollama already uses 8 threads), Balanced power plan, no discrete GPU (Ollama drops the Radeon iGPU by default). With `LLM_MODEL=qwen2.5:3b` and `CHAT_CONTEXT_TOKENS=800` (new, CONTRACT §3) every llm test passes (15/15: citations, not_in_vault, two sources, injection), so both are the config defaults; 7b stays selectable via env for a GPU host. Salary question (989 prompt tokens; the 800 budget does not bind there, chunks are ~780): first token 38.7 s warm on 7b -> 16.5-17.2 s on 3b with only 3b + embed resident (free RAM 0.4 -> 2.6 GB). Still over the 10 s target; facts (step 7) are the next lever
 
 **Next**
+8. `parse_question.py` with amount normalisation in code before the LLM (BUILD_PLAN §4.10, reusing `brain/amounts.py`; add per-period + percentage stripping; unit tests) + `decide.py` (pure code, CONTRACT §5.4) (moved before 6: the M2 disclosure flow runs through parse + decide and must not use stubs)
 6. `entities.py` + graph-neighbour retrieval in chat
-7. `extract.py` with grounding, `memory.py` with supersession + candidates + teach; "Remember this?" chips
-8. `parse_question.py` with amount normalisation in code before the LLM (BUILD_PLAN §4.10, reusing `brain/amounts.py`; add per-period + percentage stripping; unit tests) + `decide.py` (pure code, CONTRACT §5.4)
+7. `extract.py` with grounding, `memory.py` with supersession + candidates + teach; "Remember this?" chips. Numeric questions in chat should then prefer grounded current facts over raw chunks (few tokens, verified quotes; BUILD_PLAN §4.5)
 9. `agent/planner.py`
 10. `pages/brain/Vault`: documents, signature badges, entities, graph, `entities_used` highlight (M3)
 11. WhatsApp ingestion; `pages/brain/Memory`: timeline, superseded values, "Teach KAVACH"
-12. (decision needed) Chat first token is still > 10 s on statement questions (7B prefill 25-30 tok/s, 3B 60-85 tok/s, ~1000 prompt tokens). Options: `LLM_MODEL=qwen2.5:3b` + ~700-token budget (~9 s), smaller PDF chunks, or the GPU box
-13. (later) Follow-up retrieval in chat: "and when does it end?" searches the question alone; fold in the previous user turn once DATA's notes exist to test against
+12. (small) qwen2.5:3b sometimes cites chunks on a "don't have that" answer (`I don't have that in your vault. [1][2]`); `check()` should ignore citations in a not-in-vault sentence, else the Ask page reads it as a partial answer
+13. (option, untested) Ollama sees the Radeon iGPU (Vulkan) but drops it by default ("set OLLAMA_IGPU_ENABLE=1"); worth one benchmark before the final demo. It shares system RAM, so check free memory too
+14. (later) Follow-up retrieval in chat: "and when does it end?" searches the question alone; fold in the previous user turn once DATA's notes exist to test against
 
 **Blocked**
 - (none)

@@ -25,7 +25,7 @@ def _path(name: str, default: Path) -> Path:
 
 # Ollama
 OLLAMA_URL = _env("OLLAMA_URL", "http://127.0.0.1:11434")
-LLM_MODEL = _env("LLM_MODEL", "qwen2.5:7b")
+LLM_MODEL = _env("LLM_MODEL", "qwen2.5:3b")  # laptop default; LLM_MODEL=qwen2.5:7b when OLLAMA_URL is a GPU host
 FAST_MODEL = _env("FAST_MODEL", "qwen2.5:3b")
 EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(_env("EMBED_DIM", "768"))
@@ -34,6 +34,7 @@ EMBED_DOC_PREFIX = _env("EMBED_DOC_PREFIX", "search_document: ")
 EMBED_QUERY_PREFIX = _env("EMBED_QUERY_PREFIX", "search_query: ")
 OLLAMA_KEEP_ALIVE = _env("OLLAMA_KEEP_ALIVE", "24h")
 NUM_CTX = int(_env("NUM_CTX", "8192"))  # options.num_ctx on chat and structured calls
+CHAT_CONTEXT_TOKENS = int(_env("CHAT_CONTEXT_TOKENS", "800"))  # estimated history + chunk tokens per chat prompt
 
 # Paths (runtime state is gitignored)
 DB_PATH = _path("DB_PATH", ROOT / "kavach.db")

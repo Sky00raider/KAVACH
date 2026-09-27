@@ -3,7 +3,7 @@
 Retrieval is hybrid search (`embed.search`): up to TOP_K chunks, at most MAX_PER_DOC per document, hits below
 MIN_SCORE dropped once MIN_CHUNKS are kept; history + chunk text is then held to CONTEXT_TOKENS (estimated,
 history trimmed first), and chunk text is compacted (`model_text`) before it is sent. On a CPU laptop prefill
-runs at ~25-30 tokens/s, so prompt size is first-token latency. Graph neighbours (step 6) and current facts
+runs at ~25-30 tokens/s on 7b and ~60 on 3b, so prompt size is first-token latency. Graph neighbours (step 6) and current facts
 (step 7) are added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
 their contents are untrusted data, never instructions. The model only writes the answer; the citation check
 is plain code over the finished text.
@@ -27,7 +27,7 @@ import time
 from collections import Counter
 from collections.abc import Iterator
 
-from kavach import db
+from kavach import config, db
 from kavach.brain import embed, llm
 from kavach.models import (
     ChatDoneData,
@@ -52,7 +52,7 @@ MAX_PER_DOC = 2
 MIN_SCORE = 0.3       # normalised hybrid score (the best chunk is near 1)
 MIN_CHUNKS = 2        # kept even below MIN_SCORE
 HISTORY_TURNS = 6
-CONTEXT_TOKENS = 1500  # estimated tokens of history + chunk text per prompt; CPU prefill is ~25-30 tok/s
+CONTEXT_TOKENS = config.CHAT_CONTEXT_TOKENS  # estimated history + chunk tokens; CPU prefill is prompt-bound
 QUOTE_CHARS = 200
 NOT_IN_VAULT = "I don't have that in your vault."
 

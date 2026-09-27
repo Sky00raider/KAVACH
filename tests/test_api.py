@@ -180,6 +180,8 @@ def test_health_local_inference_follows_ollama_host(client, monkeypatch, url, lo
 
 
 def test_health_model_loaded_per_role(client, monkeypatch):
+    monkeypatch.setattr(config, "LLM_MODEL", "llm-model:7b")  # distinct names: the laptop default shares llm/fast
+    monkeypatch.setattr(config, "FAST_MODEL", "fast-model:3b")
     monkeypatch.setattr(api, "_ollama_status", lambda: (True, {api._full_name(config.LLM_MODEL),
                                                                api._full_name(config.EMBED_MODEL)}))
     h = Health.model_validate(client.get("/api/health", headers=TOKEN).json())

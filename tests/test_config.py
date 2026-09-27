@@ -9,9 +9,10 @@ def test_contract_config_names_exist():
     for name in ("OLLAMA_URL", "LLM_MODEL", "FAST_MODEL", "EMBED_MODEL", "EMBED_DIM", "EMBED_DOC_PREFIX", "EMBED_QUERY_PREFIX", "OLLAMA_KEEP_ALIVE", "NUM_CTX",
                  "DB_PATH", "VAULT_DIR", "OUTBOX_DIR", "KEYS_DIR", "OWNER_TOKEN", "API_PORT", "GATE_PORT", "REQUESTER_PORT",
                  "OWNER_URL", "CHUNK_SIZE", "CHUNK_OVERLAP", "WATCH_DEBOUNCE_S", "KAVACH_WATCH", "LEDGER_MIN_WIDTH",
-                 "LEDGER_MAX_ATTESTED_PER_30D", "WALLET_LOW_COPIES"):
+                 "LEDGER_MAX_ATTESTED_PER_30D", "WALLET_LOW_COPIES", "CHAT_CONTEXT_TOKENS"):
         assert hasattr(config, name), name
     assert (config.EMBED_DOC_PREFIX, config.EMBED_QUERY_PREFIX) == ("search_document: ", "search_query: ")
+    assert config.CHAT_CONTEXT_TOKENS == 800
     assert config.NUM_CTX == 8192 and config.CHUNK_SIZE == 600 and config.LEDGER_MIN_WIDTH == {"income": 25000, "percentage": 15}
 
 
