@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react"
 import { api, probeOwner, requesterApi } from "@/api/client"
 import { usePoll } from "@/api/poll"
+import { loadHealth, saveHealth } from "./lastHealth"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/components/lib/utils"
 
@@ -42,9 +44,15 @@ function StatusRow({ level, title, subtitle, children }: {
   )
 }
 
-/** Owner mode: Ollama, per-role models and the DB, from /api/health. */
+/** Owner mode: Ollama, per-role models and the DB, from /api/health. Until the first poll answers, the last
+ *  known status (from the previous page load) is shown instead of "checking…". */
 export function OwnerHealth() {
-  const { data, error } = usePoll(api.health, HEALTH_MS)
+  const { data: fresh, error } = usePoll(api.health, HEALTH_MS)
+  const [cached] = useState(loadHealth)
+  useEffect(() => {
+    if (fresh) saveHealth(fresh)
+  }, [fresh])
+  const data = fresh ?? cached
   let level: Level = "unknown"
   let subtitle = "checking…"
   if (error) {

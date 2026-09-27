@@ -33,6 +33,7 @@ Step numbers refer to `docs/BUILD_PLAN.md` §6.
 
 - `kavach/textnorm.py` (§6.5): `normalize_text`, `text_hash`, `pdf_pages`, `pdf_text_hash`; issuers sign the generated PDF's `pdf_text_hash`; `documents.path` vault-relative (fixtures fixed, audit fixture re-chained); `document_signature_failed` detail `{path, doc_id, iss, reason}` (§13). `tests/test_textnorm.py`
 - `document_removed` audit event (§13, `{path, doc_id}`; models, audit fixture, `types.ts` regenerated); `ToolResult.output_path` runtime-root-relative (§7); `EMBED_DOC_PREFIX` / `EMBED_QUERY_PREFIX` in config (§3)
+- Owner health pill shows the last known `/api/health` (localStorage `kavach:last-health`, `shell/lastHealth.ts`) until the first poll answers, instead of "checking…" on every page load; errors still win (done by BRAIN on the owner's instruction after the M2 dry run)
 
 **Next**
 - Scaffold complete. CONTRACT owner: review CONTRACT change proposals from BRAIN/TRUST
