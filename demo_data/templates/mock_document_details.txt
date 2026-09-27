@@ -1,0 +1,66 @@
+KAVACH DEMO DOCUMENT DETAILS
+
+================================
+BANK STATEMENT
+================================
+
+Name:
+Duk
+
+Bank:
+KAVACH Demo Bank
+
+Account:
+XXXX-XXXX-4821
+
+Statement Period:
+01 April 2026 - 30 September 2026
+
+Monthly Income:
+₹62,000
+
+Important:
+Use fictional/demo information only.
+
+================================
+MARKSHEET
+================================
+
+Name:
+Duk
+
+Institution:
+Ramaiah Demo University
+
+Programme:
+Bachelor of Engineering
+
+CGPA:
+8.9
+
+Result:
+PASS
+
+================================
+ID CARD
+================================
+
+Name:
+Duk
+
+Date of Birth:
+15 May 2005
+
+Institution:
+Ramaiah Demo University
+
+ID Number:
+DEMO-2026-1042
+
+Status:
+Valid
+
+================================
+
+All information in these documents is synthetic and
+created only for the KAVACH demonstration.
