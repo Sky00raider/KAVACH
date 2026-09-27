@@ -194,9 +194,9 @@ def test_end_to_end_drop_a_note(vault, fresh_db, monkeypatch):
     obs = watcher.start(vault)
     try:
         (vault / "notes" / "rent.md").write_text("Rent is ₹15,000, due on the 5th.", encoding="utf-8")
-        assert _wait_for(lambda: fresh_db.list_documents())
+        assert _wait_for(lambda: events == ["ingested"])  # audited after chunks and entities are stored
         doc = fresh_db.list_documents()[0]
-        assert doc.path == "notes/rent.md" and events == ["ingested"]
+        assert doc.path == "notes/rent.md"
         (vault / "notes" / "rent.md").unlink()
         assert _wait_for(lambda: not fresh_db.list_documents())
         assert _wait_for(lambda: events == ["ingested", "document_removed"])

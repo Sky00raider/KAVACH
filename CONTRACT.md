@@ -73,13 +73,13 @@ kavach/                         repo root
 
 ## 3. Config (`kavach/config.py`, env-overridable)
 
-`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `EMBED_DOC_PREFIX="search_document: "` (prepended to every chunk before embedding), `EMBED_QUERY_PREFIX="search_query: "` (prepended to every search query), `OLLAMA_KEEP_ALIVE` (default `"24h"`), `NUM_CTX=8192` (Ollama `options.num_ctx` on chat and structured calls), `CHAT_CONTEXT_TOKENS=800` (estimated tokens of history + chunk text per chat prompt), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `KAVACH_WATCH=1` (`0` turns off the owner API's vault watcher and search-index warm-up; tests set `0`), `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
+`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `EMBED_DOC_PREFIX="search_document: "` (prepended to every chunk before embedding), `EMBED_QUERY_PREFIX="search_query: "` (prepended to every search query), `OLLAMA_KEEP_ALIVE` (default `"24h"`), `NUM_CTX=8192` (Ollama `options.num_ctx` on chat and structured calls), `CHAT_CONTEXT_TOKENS=800` (estimated tokens of history + chunk text per chat prompt), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_NAME` (default `"Ananya Iyer"`, the mock issuers' subject; the name of entity `e_owner`), `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `KAVACH_WATCH=1` (`0` turns off the owner API's vault watcher and search-index warm-up; tests set `0`), `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
 
 ## 4. Knowledge model
 
-**Entity types:** `PERSON`, `PROJECT` (ongoing goal), `CONCEPT` (recurring topic), `DECISION` (choice + date + quote), `ORG`, `PLACE`, `DOCUMENT`, `OBLIGATION` (rent, EMI, fee, renewal), `EVENT`. The owner is the fixed entity `e_owner`.
+**Entity types:** `PERSON`, `PROJECT` (ongoing goal), `CONCEPT` (recurring topic), `DECISION` (choice + date + quote), `ORG`, `PLACE`, `DOCUMENT`, `OBLIGATION` (rent, EMI, fee, renewal), `EVENT`. The owner is the fixed entity `e_owner`, a `PERSON` named `config.OWNER_NAME`.
 
-**Edge types:** `WORKS_ON`, `PART_OF`, `ABOUT`, `RELATES_TO`, `DECIDED`, `LANDLORD_OF`, `EMPLOYED_BY`, `BANKS_WITH`, `STUDIED_AT`, `PAID`, `DUE_ON`, `PARTY_TO`, `MENTIONED_IN`. Every edge has `valid_from`, `valid_to`, `source_chunk_id`.
+**Edge types:** `WORKS_ON`, `PART_OF`, `ABOUT`, `RELATES_TO`, `DECIDED`, `LANDLORD_OF`, `EMPLOYED_BY`, `BANKS_WITH`, `STUDIED_AT`, `PAID`, `DUE_ON`, `PARTY_TO`, `MENTIONED_IN`. Every edge has `valid_from`, `valid_to`, `source_chunk_id`. A note's `[[links]]` become `target -MENTIONED_IN-> DOCUMENT(note)`.
 
 **Fact:**
 ```json
@@ -343,6 +343,8 @@ event: done        data: {"latency_ms":1234,"first_token_ms":800,"prompt_tokens"
 event: error       data: {"message":"..."}
 ```
 `citation_ok=false` when any `[n]` is not a supplied chunk or the answer has no citation.
+
+`entities_used`: the entities the question names, then their graph neighbours whose linking chunk is among `chunks` (never `e_owner` as a named entity; it can appear as a neighbour).
 
 Chunks of documents whose `signature_status` is `invalid` are never retrieved for chat. `excluded_docs` lists the vault-relative paths of those documents that would otherwise have been among the chunks sent to the model (then `flags` has `tampered_source_excluded`); empty otherwise. `prompt_tokens` is Ollama's `prompt_eval_count` for the answer, `null` when the model was not called.
 

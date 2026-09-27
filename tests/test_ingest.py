@@ -129,7 +129,7 @@ def test_ingested_audit_detail_is_exact(vault):
     res = ingest.ingest_file(note)
     assert vault.events == [("ingested", res.doc_id, {
         "path": "notes/rent.md", "doc_id": res.doc_id, "signature_status": "unsigned",
-        "chunks_added": 1, "entities_added": 0, "facts_added": 0})]
+        "chunks_added": 1, "entities_added": 2, "facts_added": 0})]  # note DOCUMENT + link placeholder
 
 
 def test_note_ingest(vault, fresh_db):

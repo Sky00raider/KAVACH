@@ -1,0 +1,546 @@
+"""Entities and graph (BRAIN step 6): names, grounding, dedupe, links, ingest wiring, question matching,
+graph-neighbour retrieval in chat; llm tests on the demo notes (precision, drop-to-ingested time)."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import time
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+from test_ingest import _make_pdf, vault  # noqa: F401  (fixture)
+
+from kavach import config, db
+from kavach.brain import chat, embed, entities, ingest, llm
+from kavach.models import OWNER_ENTITY_ID, ScoredChunk, SignatureResult
+from kavach.trust import issuer_check
+
+E = entities
+
+
+def X(**lists):
+    return E.Extraction(**lists)
+
+
+@pytest.fixture
+def extractor(monkeypatch):
+    """`entities.extract` answers from `table` ({substring of the chunk: Extraction}), else nothing."""
+    state = SimpleNamespace(table={}, calls=[])
+
+    def fake(text):
+        state.calls.append(text)
+        return next((x for key, x in state.table.items() if key in text), X())
+
+    monkeypatch.setattr(E, "extract", fake)
+    return state
+
+
+def _entities():
+    return db.fetch_all("SELECT * FROM entities ORDER BY rowid")
+
+
+def _edges(current=True):
+    return db.fetch_all("SELECT * FROM edges" + (" WHERE valid_to IS NULL" if current else "") + " ORDER BY rowid")
+
+
+def _by_name(name):
+    rows = db.entities_by_norm([E.normalise_name(name)])
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def _write(root, rel, text):
+    path = root / rel
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# --- names -------------------------------------------------------------------------------------------------
+
+
+def test_normalise_name_strips_honorifics_case_and_punctuation():
+    assert E.normalise_name("Mr. Ravi  Kumar") == "ravi kumar"
+    assert E.normalise_name("Smt. Dr. Lakshmi") == "lakshmi"
+    assert E.normalise_name("flat_move-2026") == "flat move 2026"
+    assert E.normalise_name("Dr") == "dr"  # a bare honorific is a name, not nothing
+    assert E.normalise_name("Ravi's") == "ravi s"
+
+
+def test_owner_aliases(monkeypatch):
+    for name in ("I", "me", "My", "Ananya", "Ananya Iyer", "Ms. Ananya Iyer", "the owner"):
+        assert E.is_owner(name), name
+    for name in ("Ravi", "Ananya Rao Kumar", "Iyer"):
+        assert not E.is_owner(name), name
+    monkeypatch.setattr(config, "OWNER_NAME", "Kiran Shah")
+    assert E.is_owner("Kiran") and not E.is_owner("Ananya")
+
+
+def test_note_title():
+    assert E.note_title("notes/flat_move_2026.md") == "Flat move 2026"
+    assert E.note_title("notes/budget.md") == "Budget"
+
+
+def test_decision_name_from_quote():
+    assert E.decision_name("Decision: I decided to renew only if rent stays under ₹15,000.") == \
+        "I decided to renew only if rent stays under ₹15,000"
+    long = E.decision_name("we will " + "keep saving money " * 10 + ".")
+    assert len(long) <= E.DECISION_NAME_CHARS + 1 and long.endswith("…") and long.startswith("We will keep")
+
+
+# --- grounding ---------------------------------------------------------------------------------------------
+
+DECISION_TEXT = ("Date: 18 September 2026\n\nDecision: I decided to renew only if rent stays under ₹15,000.\n"
+                 "Project: [[Flat move 2026]]. Topic: rent renewal. Landlord is Mr. Ravi, 98450 12345, "
+                 "ravi@example.com.")
+
+
+def test_ground_keeps_named_entities_and_drops_invented_ones():
+    g = E.ground(X(people=["Ravi", "Arjun Rao", "I", "Ananya"], projects=["Flat move 2026"], organisations=[""]),
+                 DECISION_TEXT)
+    assert {k: v["type"] for k, v in g.entities.items()} == {"ravi": "PERSON", "flat move 2026": "PROJECT"}
+    assert g.dropped == [("Arjun Rao", "name not in text"), ("", "empty name")]
+    assert g.owner_mentions == 2
+
+
+def test_ground_a_name_listed_twice_takes_the_first_type_in_priority_order():
+    g = E.ground(X(topics=["rent renewal", "Ravi"], obligations=["Rent renewal"], people=["Mr. Ravi"]), DECISION_TEXT)
+    assert {k: (v["type"], v["name"]) for k, v in g.entities.items()} == {
+        "ravi": ("PERSON", "Mr. Ravi"), "rent renewal": ("OBLIGATION", "Rent renewal")}
+
+
+def test_ground_decision_needs_exact_quote_and_grounded_date():
+    ok = {"quote": "decision: i decided to renew only if rent  stays under ₹15,000.", "date": "2026-09-18"}
+    g = E.ground(X(decisions=[ok], projects=["Flat move 2026"], topics=["rent renewal"], people=["Ravi"]),
+                 DECISION_TEXT)
+    name = "I decided to renew only if rent stays under ₹15,000"
+    d = E.normalise_name(name)
+    assert g.entities[d] == {"type": "DECISION", "name": name, "attrs": {
+        "quote": "decision: i decided to renew only if rent stays under ₹15,000.", "date": "2026-09-18"}}
+    assert g.relations == [(E.OWNER, "DECIDED", d, "2026-09-18"), (d, "PART_OF", "flat move 2026", "2026-09-18"),
+                           (d, "ABOUT", "rent renewal", "2026-09-18")]  # nothing to Ravi (a PERSON)
+    bad = [
+        {**ok, "quote": "I decided to move out."},       # not in the text
+        {**ok, "quote": "  "},
+        {**ok, "date": None},
+        {**ok, "date": "18 September 2026"},             # not ISO
+        {**ok, "date": "2026-09-19"},                    # day not in the text
+        {**ok, "date": "2025-09-18"},                    # year not in the text
+    ]
+    for b in bad:
+        g = E.ground(X(decisions=[b]), DECISION_TEXT)
+        assert not g.entities and len(g.dropped) == 1, b
+
+
+def test_ground_decision_must_state_a_choice():
+    text = ("18/09/26, 19:46 - Duk: Is the rent still the same?\n18/09/26, 19:48 - Ravi: Yes, the current rent is "
+            "14500.\n21/09/26, 11:18 - Ravi: I'll send them tonight.\n20/09/26, 18:21 - Duk: I will probably renew "
+            "if the rent stays below 15000.\n18/09/26, 19:50 - Duk: I decided to wait.")
+    quotes = {"Is the rent still the same?": "2026-09-18", "Yes, the current rent is 14500.": "2026-09-18",
+              "I'll send them tonight.": "2026-09-21", "I will probably renew if the rent stays below 15000.":
+              "2026-09-20", "I decided to wait.": "2026-09-18"}
+    g = E.ground(X(decisions=[{"quote": q, "date": d} for q, d in quotes.items()]), text)
+    assert sorted(v["attrs"]["quote"] for v in g.entities.values()) == [
+        "I decided to wait.", "I will probably renew if the rent stays below 15000."]
+    assert [r for _, r in g.dropped] == ["decision states no choice"] * 3
+
+
+def test_ground_decision_date_from_a_whatsapp_timestamp():
+    text = "20/09/26, 18:21 - Duk: I will probably renew if the rent stays below 15000."
+    d = {"quote": "I will probably renew if the rent stays below 15000.", "date": "2026-09-20"}
+    assert E.ground(X(decisions=[d]), text).entities
+
+
+def test_ground_contacts_only_when_in_text_and_on_a_kept_name():
+    g = E.ground(X(people=["Mr. Ravi"], organisations=["Rent"],
+                   contacts=[{"name": "Ravi", "phone": "+91 98450-12345", "email": "ravi@example.com"},
+                             {"name": "Rent", "phone": "99999 00000", "email": "x@y.com"},
+                             {"name": "Arjun", "email": "ravi@example.com"}]), DECISION_TEXT)
+    assert g.entities["ravi"]["attrs"] == {"phone": "+91 98450-12345", "email": "ravi@example.com"}
+    assert g.entities["rent"]["attrs"] == {} and "arjun" not in g.entities
+
+
+def test_ground_relations_resolve_names_and_the_owner():
+    g = E.ground(X(people=["Mr. Ravi"], projects=["Flat move 2026"],
+                   relations=[{"src": "Ravi", "rel": "LANDLORD_OF", "dst": "I"},
+                              {"src": "Ananya", "rel": "WORKS_ON", "dst": "flat move 2026"},
+                              {"src": "Ravi", "rel": "LANDLORD_OF", "dst": "me"},              # duplicate
+                              {"src": "Ravi", "rel": "RELATES_TO", "dst": "Arjun"},            # unknown end
+                              {"src": "Ravi", "rel": "RELATES_TO", "dst": "Ravi"},             # self
+                              {"src": "Ravi", "rel": "MENTIONED_IN", "dst": "Flat move 2026"},  # links only
+                              {"src": "I", "rel": "DECIDED", "dst": "Flat move 2026"},         # code only
+                              {"src": "Ravi", "rel": "PART_OF", "dst": "Flat move 2026"}]),
+                 DECISION_TEXT)
+    assert g.relations == [("ravi", "LANDLORD_OF", E.OWNER, None), (E.OWNER, "WORKS_ON", "flat move 2026", None),
+                           ("ravi", "PART_OF", "flat move 2026", None)]
+    assert g.relations_dropped == 5
+
+
+# --- graph writes through ingest ---------------------------------------------------------------------------
+
+
+def test_owner_named_in_a_note_and_a_pdf_is_one_entity(vault, extractor):
+    extractor.table["Ananya went"] = X(people=["Ananya"], organisations=["Mock Bank"],
+                                       relations=[{"src": "Ananya", "rel": "BANKS_WITH", "dst": "Mock Bank"}])
+    extractor.table["Ananya Iyer"] = X(people=["Ananya Iyer"], organisations=["Mock Bank"],
+                                       relations=[{"src": "Ananya Iyer", "rel": "BANKS_WITH", "dst": "Mock Bank"}])
+    ingest.ingest_file(_write(vault.root, "notes/bank.md", "Ananya went to Mock Bank today."))
+    pdf = vault.root / "pdfs" / "statement.pdf"
+    _make_pdf(pdf, ["Mock Bank statement of account. Customer: Ananya Iyer. Salary credit 62,000."])
+    ingest.ingest_file(pdf)
+
+    owners = [r for r in _entities() if r["norm_name"] in ("ananya", "ananya iyer")]
+    assert [(r["entity_id"], r["type"], r["name"]) for r in owners] == [(OWNER_ENTITY_ID, "PERSON", "Ananya Iyer")]
+    bank = _by_name("Mock Bank")
+    banks_with = [(e["src"], e["dst"]) for e in _edges() if e["rel"] == "BANKS_WITH"]
+    assert banks_with == [(OWNER_ENTITY_ID, bank["entity_id"])] * 2  # one per document (provenance)
+
+
+def test_same_person_across_notes_merges_attrs_and_keeps_the_first_type(vault, extractor):
+    extractor.table["landlord is Mr. Ravi"] = X(people=["Mr. Ravi"], contacts=[{"name": "Ravi", "phone": "98450 12345"}])
+    extractor.table["Ravi's email"] = X(organisations=["Ravi"], contacts=[
+        {"name": "Ravi", "email": "ravi@example.com", "phone": "11111 22222"}])
+    first = ingest.ingest_file(_write(vault.root, "notes/a.md", "My landlord is Mr. Ravi, 98450 12345."))
+    second = ingest.ingest_file(_write(vault.root, "notes/b.md", "Ravi's email is ravi@example.com, 11111 22222."))
+    ravi = _by_name("Ravi")
+    assert (ravi["name"], ravi["type"]) == ("Mr. Ravi", "PERSON")
+    assert json.loads(ravi["attrs_json"]) == {"phone": "98450 12345", "email": "ravi@example.com"}  # first value wins
+    assert first.entities_added == 2 and second.entities_added == 1  # Ravi + a DOCUMENT, then only b's DOCUMENT
+
+
+def test_links_become_mentioned_in_edges_to_the_note(vault, extractor):
+    res = ingest.ingest_file(_write(vault.root, "notes/budget.md",
+                                    "# Budget\nKeep rent low.\n\nRelated:\n- [[Rent renewal]]\n- [[Flat move 2026|flat]]"
+                                    "\n- [[Rent renewal#Notes]]\n- [[Budget]]"))
+    doc = _by_name("Budget")
+    assert doc["type"] == "DOCUMENT" and json.loads(doc["attrs_json"]) == {"path": "notes/budget.md"}
+    renewal, flat = _by_name("Rent renewal"), _by_name("Flat move 2026")
+    assert (renewal["type"], json.loads(renewal["attrs_json"])) == ("CONCEPT", {"origin": "link"})
+    chunk_id = db.fetch_one("SELECT chunk_id FROM chunks WHERE doc_id = ?", (res.doc_id,))["chunk_id"]
+    assert [(e["src"], e["rel"], e["dst"], e["source_chunk_id"], e["valid_from"]) for e in _edges()] == [
+        (renewal["entity_id"], "MENTIONED_IN", doc["entity_id"], chunk_id, None),
+        (flat["entity_id"], "MENTIONED_IN", doc["entity_id"], chunk_id, None)]  # self-link [[Budget]] skipped
+    assert res.entities_added == 3
+
+
+def test_link_placeholder_is_taken_over_by_the_extracted_entity(vault, extractor):
+    ingest.ingest_file(_write(vault.root, "notes/budget.md", "Budget.\n[[Flat move 2026]]"))
+    placeholder = _by_name("Flat move 2026")
+    extractor.table["Project: Flat"] = X(projects=["Flat Move 2026"])
+    ingest.ingest_file(_write(vault.root, "notes/flat_move_2026.md", "# Flat Move 2026\nProject: Flat Move 2026"))
+    rows = db.entities_by_norm(["flat move 2026"])
+    assert [(r["entity_id"], r["type"]) for r in rows] == [(placeholder["entity_id"], "PROJECT"),
+                                                           (rows[1]["entity_id"], "DOCUMENT")]
+    assert json.loads(rows[0]["attrs_json"]) == {}
+
+
+def test_link_placeholder_becomes_the_note_when_nothing_is_extracted(vault, extractor):
+    ingest.ingest_file(_write(vault.root, "notes/budget.md", "See [[Landlord]]."))
+    placeholder = _by_name("Landlord")
+    ingest.ingest_file(_write(vault.root, "notes/landlord.md", "The landlord is Ravi."))
+    assert [(r["entity_id"], r["type"]) for r in db.entities_by_norm(["landlord"])] == [
+        (placeholder["entity_id"], "DOCUMENT")]
+
+
+def test_link_to_an_existing_entity_prefers_a_non_document(vault, extractor):
+    extractor.table["Project: Flat"] = X(projects=["Flat move 2026"])
+    ingest.ingest_file(_write(vault.root, "notes/flat_move_2026.md", "Project: Flat move 2026, see [[Flat move 2026]]"))
+    project = next(r for r in db.entities_by_norm(["flat move 2026"]) if r["type"] == "PROJECT")
+    doc = next(r for r in db.entities_by_norm(["flat move 2026"]) if r["type"] == "DOCUMENT")
+    assert [(e["src"], e["rel"], e["dst"]) for e in _edges()] == [(project["entity_id"], "MENTIONED_IN", doc["entity_id"])]
+
+
+def test_invalid_signature_documents_are_not_extracted(vault, extractor, monkeypatch):
+    monkeypatch.setattr(issuer_check, "verify_pdf", lambda p: SignatureResult(status="invalid", iss="mock_bank"))
+    extractor.table["Ananya"] = X(organisations=["Mock Bank"])
+    pdf = vault.root / "pdfs" / "tampered.pdf"
+    _make_pdf(pdf, ["Mock Bank statement. Customer: Ananya Iyer. Salary credit 92,000."])
+    res = ingest.ingest_file(pdf)
+    assert res.entities_added == 0 and extractor.calls == []
+    assert _entities() == [] and _edges(current=False) == []
+
+
+def test_document_that_turns_invalid_has_its_edges_closed_and_regains_them_when_valid(vault, extractor, monkeypatch):
+    status = {"s": "issuer_signed"}
+    monkeypatch.setattr(issuer_check, "verify_pdf", lambda p: SignatureResult(status=status["s"], iss="mock_bank"))
+    extractor.table["Mock Bank"] = X(organisations=["Mock Bank"],
+                                     relations=[{"src": "I", "rel": "BANKS_WITH", "dst": "Mock Bank"}])
+    pdf = vault.root / "pdfs" / "statement.pdf"
+    _make_pdf(pdf, ["Mock Bank statement. Customer: Ananya Iyer."])
+    ingest.ingest_file(pdf)
+    assert len(_edges()) == 1
+
+    status["s"] = "invalid"  # e.g. the trust list changed; same text
+    ingest.ingest_file(pdf)
+    assert _edges() == [] and len(_edges(current=False)) == 1
+
+    status["s"] = "issuer_signed"
+    res = ingest.ingest_file(pdf)
+    assert res.chunks_added == 1 and len(_edges()) == 1 and len(_edges(current=False)) == 2
+
+
+def test_changed_file_closes_old_edges_and_adds_new_ones(vault, extractor):
+    extractor.table["Ravi"] = X(people=["Ravi"], relations=[{"src": "Ravi", "rel": "LANDLORD_OF", "dst": "I"}])
+    note = _write(vault.root, "notes/landlord.md", "The landlord is Ravi.")
+    ingest.ingest_file(note)
+    old = [e for e in _edges() if e["rel"] == "LANDLORD_OF"]
+    _write(vault.root, "notes/landlord.md", "The landlord is Ravi. He lives upstairs.")
+    ingest.ingest_file(note)
+    closed = [e for e in _edges(current=False) if e["valid_to"] is not None]
+    assert [e["edge_id"] for e in closed] == [e["edge_id"] for e in old]
+    now = [e for e in _edges() if e["rel"] == "LANDLORD_OF"]
+    assert len(now) == 1 and now[0]["source_chunk_id"] != old[0]["source_chunk_id"]
+    assert len(db.entities_by_norm(["ravi"])) == 1
+
+
+def test_ollama_down_keeps_ingest_and_links(vault, monkeypatch):
+    calls = []
+
+    def down(text):
+        calls.append(text)
+        raise llm.LLMError("connection refused")
+
+    monkeypatch.setattr(E, "extract", down)
+    monkeypatch.setattr(ingest, "chunk_text", lambda text: [text[:40], text[40:]])
+    res = ingest.ingest_file(_write(vault.root, "notes/n.md", "A long enough note about the flat move, see "
+                                                              "[[Flat move 2026]] and more text here."))
+    assert res.chunks_added == 2 and len(calls) == 1  # stops after the first failure
+    assert [e["rel"] for e in _edges()] == ["MENTIONED_IN"]
+
+
+def test_extraction_is_capped_per_document(vault, extractor, monkeypatch):
+    monkeypatch.setattr(E, "MAX_EXTRACT_CHUNKS", 2)
+    monkeypatch.setattr(ingest, "chunk_text", lambda text: [f"part {i}" for i in range(5)])
+    ingest.ingest_file(_write(vault.root, "notes/long.md", "long note"))
+    assert extractor.calls == ["part 0", "part 1"]
+
+
+def test_owner_row_follows_config(fresh_db, monkeypatch):
+    E.ensure_owner()
+    monkeypatch.setattr(config, "OWNER_NAME", "Kiran Shah")
+    E.ensure_owner()
+    assert [(r["entity_id"], r["name"], r["norm_name"]) for r in _entities()] == [(OWNER_ENTITY_ID, "Kiran Shah",
+                                                                                   "kiran shah")]
+
+
+def test_document_entities_only_merge_with_documents(fresh_db):
+    project, _ = E.upsert("PROJECT", "Flat move 2026")
+    doc, created = E.upsert("DOCUMENT", "Flat move 2026", {"path": "notes/flat_move_2026.md"})
+    assert created and doc != project
+    assert E.upsert("CONCEPT", "flat move 2026") == (project, False)
+    assert E.upsert("DOCUMENT", "Flat Move 2026") == (doc, False)
+
+
+# --- question matching -------------------------------------------------------------------------------------
+
+
+def _unit(*xs):
+    v = np.zeros(config.EMBED_DIM, np.float32)
+    v[: len(xs)] = xs
+    return v / np.linalg.norm(v)
+
+
+@pytest.fixture
+def named(fresh_db, monkeypatch):
+    """Owner, Ravi (PERSON), Flat move 2026 (PROJECT), Rent renewal (CONCEPT), Ed (PERSON); fake vectors."""
+    E.ensure_owner()
+    ids = {name: E.upsert(t, name)[0] for t, name in (("PERSON", "Ravi"), ("PROJECT", "Flat move 2026"),
+                                                      ("CONCEPT", "Rent renewal"), ("PERSON", "Ed"))}
+    vectors = {"ravi": _unit(1, 0, 0), "flat move 2026": _unit(0, 1, 0), "rent renewal": _unit(0, 0, 1),
+               "ed": _unit(0, 0, 0, 1)}
+    state = SimpleNamespace(ids=ids, qvec=None, embedded=[])
+
+    def fake_embed(texts):
+        state.embedded += texts
+        return np.stack([vectors.get(t.removeprefix(config.EMBED_QUERY_PREFIX), _unit(0, 0, 0, 0, 1)) for t in texts])
+
+    monkeypatch.setattr(llm, "embed", fake_embed)
+    monkeypatch.setattr(embed, "query_vector", lambda q: state.qvec)
+    return state
+
+
+def test_find_by_name_in_the_question(named):
+    ids = named.ids
+    assert E.find_in_question("When does my flat move 2026 project end, and does Mr. Ravi know?") == [
+        ids["Flat move 2026"], ids["Ravi"]]
+    assert E.find_in_question("What did I decide?") == []  # the owner is never matched
+    assert E.find_in_question("Is Edward home?") == []      # "ed" is too short and not a whole word anyway
+
+
+def test_find_by_embedding_adds_close_names(named):
+    ids = named.ids
+    named.qvec = _unit(0.2, 1, 0.9)  # close to flat move (0.73) and rent renewal (0.66), not Ravi
+    assert E.MATCH_MIN_COSINE == 0.72
+    assert E.find_in_question("when do I have to move out?") == [ids["Flat move 2026"]]
+    named.qvec = _unit(1, 0.05, 0)
+    assert E.find_in_question("Ravi's number?") == [ids["Ravi"]]  # already found by name, not twice
+    E.find_in_question("again")
+    assert sorted(named.embedded) == sorted(config.EMBED_QUERY_PREFIX + n for n in
+                                            ("ravi", "flat move 2026", "rent renewal", "ed"))  # names embedded once
+
+
+def test_find_without_ollama_is_string_only(named, monkeypatch):
+    def down(texts):
+        raise llm.LLMError("down")
+
+    monkeypatch.setattr(llm, "embed", down)
+    named.qvec = _unit(0, 1, 0)
+    assert E.find_in_question("tell me about rent renewal") == [named.ids["Rent renewal"]]
+
+
+def test_find_on_empty_graph_never_embeds(fresh_db, monkeypatch):
+    monkeypatch.setattr(embed, "query_vector", lambda q: pytest.fail("embedded"))
+    assert E.find_in_question("anything") == []
+
+
+# --- graph-neighbour retrieval in chat ---------------------------------------------------------------------
+
+
+def _doc(doc_id, status="unsigned"):
+    db.insert("documents", {"doc_id": doc_id, "path": f"notes/{doc_id}.md", "source": "note",
+                            "signature_status": status, "ingested_at": "2026-09-27T10:00:00Z"})
+
+
+def _chunk(cid, doc_id, text="text"):
+    db.insert("chunks", {"chunk_id": cid, "doc_id": doc_id, "locator": f"note: {doc_id}.md", "text": text})
+    return ScoredChunk(chunk_id=cid, doc_id=doc_id, locator=f"note: {doc_id}.md", text=text, score=0.0)
+
+
+@pytest.fixture
+def graph_chat(named, monkeypatch):
+    """One chunk per doc; Ravi LANDLORD_OF owner (from c_ravi), Rent renewal PART_OF Flat move (from c_plan), Ravi
+    RELATES_TO Ed (from c_bad, an invalid doc); search returns `state.ranked`; the model cites [1]."""
+    ids = named.ids
+    for d in ("a", "b", "c", "ravi", "plan", "bad"):
+        _doc(f"d_{d}", "invalid" if d == "bad" else "unsigned")
+    named.chunks = {c: _chunk(f"c_{c}", f"d_{c}", f"chunk {c}") for c in ("a", "b", "c", "ravi", "plan", "bad")}
+    db.insert_edges([
+        {"edge_id": "x_1", "src": ids["Ravi"], "rel": "LANDLORD_OF", "dst": OWNER_ENTITY_ID, "source_chunk_id": "c_ravi"},
+        {"edge_id": "x_2", "src": ids["Rent renewal"], "rel": "PART_OF", "dst": ids["Flat move 2026"],
+         "source_chunk_id": "c_plan"},
+        {"edge_id": "x_3", "src": ids["Ravi"], "rel": "RELATES_TO", "dst": ids["Ed"], "source_chunk_id": "c_bad"},
+        {"edge_id": "x_4", "src": ids["Ravi"], "rel": "RELATES_TO", "dst": ids["Flat move 2026"],
+         "source_chunk_id": "c_a", "valid_to": "2026-09-01"},  # closed: ignored
+    ])
+    named.ranked = []
+    monkeypatch.setattr(embed, "search", lambda q, k=8: named.ranked[:k])
+    monkeypatch.setattr(llm, "chat_stream", lambda messages, model=None, stats=None: iter(["Chunk [1]."]))
+    return named
+
+
+def _scored(chunk, score):
+    return chunk.model_copy(update={"score": score})
+
+
+def test_linked_chunks_are_boosted_and_pulled_in(graph_chat):
+    c = graph_chat.chunks
+    graph_chat.ranked = [_scored(c["a"], 1.0), _scored(c["b"], 0.9), _scored(c["plan"], 0.5), _scored(c["c"], 0.4)]
+    chunks, excluded, named, linked = chat.retrieve("Who is Ravi and what about the flat move 2026?")
+    assert named == [graph_chat.ids["Flat move 2026"], graph_chat.ids["Ravi"]]
+    assert [x.chunk_id for x in chunks] == ["c_a", "c_b", "c_plan", "c_c", "c_ravi"]
+    assert [round(x.score, 2) for x in chunks] == [1.0, 0.9, 0.8, 0.4, 0.3]
+    assert "c_bad" not in [x.chunk_id for x in chunks]
+    assert excluded == ["notes/d_bad.md"]  # linked via Ravi and pulled in at GRAPH_BOOST, so it would have been sent
+    assert linked["c_ravi"] == [OWNER_ENTITY_ID] and linked["c_plan"] == [graph_chat.ids["Rent renewal"]]
+
+
+def test_no_named_entity_leaves_ranking_unchanged(graph_chat):
+    c = graph_chat.chunks
+    graph_chat.ranked = [_scored(c["a"], 1.0), _scored(c["ravi"], 0.2)]
+    chunks, _, named, linked = chat.retrieve("what is the weather?")
+    assert named == [] and linked == {} and [x.score for x in chunks] == [1.0, 0.2]
+
+
+def test_meta_lists_named_entities_then_neighbours_of_sent_chunks(graph_chat, monkeypatch):
+    c = graph_chat.chunks
+    ids = graph_chat.ids
+    graph_chat.ranked = [_scored(c["plan"], 1.0), _scored(c["a"], 0.9)]
+    meta = list(chat.answer_stream("Tell me about the flat move 2026 and Ravi", []))[0].data
+    assert [r.chunk_id for r in meta.chunks] == ["c_plan", "c_a", "c_ravi"]
+    assert meta.entities_used == [ids["Flat move 2026"], ids["Ravi"], ids["Rent renewal"], OWNER_ENTITY_ID]
+
+    monkeypatch.setattr(chat, "TOP_K", 2)  # c_ravi not sent -> the owner is not a used neighbour
+    meta = list(chat.answer_stream("Tell me about the flat move 2026 and Ravi", []))[0].data
+    assert meta.entities_used == [ids["Flat move 2026"], ids["Ravi"], ids["Rent renewal"]]
+
+
+def test_warm_up_embeds_entity_names(named, monkeypatch):
+    monkeypatch.setattr(llm, "chat", lambda messages, model=None: "OK")
+    chat.warm_up()
+    assert {config.EMBED_QUERY_PREFIX + n for n in ("ravi", "flat move 2026")} <= set(named.embedded)
+
+
+# --- real model (Ollama) -----------------------------------------------------------------------------------
+
+DEMO = config.ROOT / "demo_data"
+
+
+@pytest.fixture
+def real_vault(fresh_db, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    for sub in ("pdfs", "notes", "chats"):
+        (root / sub).mkdir(parents=True)
+    monkeypatch.setattr(config, "VAULT_DIR", root)
+    monkeypatch.setattr(embed, "_index", None)
+    return root
+
+
+def _extract_note(name, text):
+    start = time.perf_counter()
+    x = E.extract(text)
+    ms = int((time.perf_counter() - start) * 1000)
+    g = E.ground(x, text)
+    print(f"\n[entities llm] {name}: {ms} ms, kept {len(g.entities)} + owner x{g.owner_mentions}, "
+          f"dropped {len(g.dropped)}, relations kept {len(g.relations)} dropped {g.relations_dropped}"
+          f"\n  kept: {ascii(sorted((v['type'], v['name']) for v in g.entities.values()))}"
+          f"\n  dropped: {ascii(g.dropped)}")
+    return g
+
+
+@pytest.mark.llm
+def test_real_extraction_precision_on_demo_notes():
+    """Prints kept vs dropped per demo note (how much the model invents), then checks the rent decision note."""
+    kept = dropped = 0
+    for path in sorted((DEMO / "notes").glob("*.md")) + [DEMO / "chats" / "landlord.txt"]:
+        text = ingest.clean_text(path.read_text(encoding="utf-8"))[:config.CHUNK_SIZE]
+        g = _extract_note(path.name, text)
+        kept += len(g.entities)
+        dropped += len(g.dropped)
+    print(f"\n[entities llm] precision on demo notes: kept {kept}, dropped {dropped} "
+          f"({100 * kept // max(kept + dropped, 1)}% kept)")
+
+    text = ingest.clean_text((DEMO / "notes" / "rent_decision.md").read_text(encoding="utf-8"))
+    g = _extract_note("rent_decision.md (check)", text)
+    decisions = [v for v in g.entities.values() if v["type"] == "DECISION"]
+    assert decisions and decisions[0]["attrs"]["date"] == "2026-09-18"
+    assert "flat move 2026" in g.entities
+
+
+@pytest.mark.llm
+def test_real_landlord_is_ravi(real_vault):
+    for name in ("landlord.md", "flat_move_2026.md"):
+        shutil.copy(DEMO / "notes" / name, real_vault / "notes" / name)
+        ingest.ingest_file(real_vault / "notes" / name)
+    ravi = _by_name("Ravi")
+    assert ravi["type"] == "PERSON"
+    assert E.find_in_question("What do I need to confirm with Ravi?")[0] == ravi["entity_id"]
+
+
+@pytest.mark.llm
+def test_real_drop_to_ingested_time_for_a_one_chunk_note(real_vault):
+    """Single-phase ingest: the time from a file landing to its `ingested` event (chunk, embed, extract, store).
+    Over 15 s means proposing two-phase ingest instead."""
+    E.extract("warm-up: Ravi is my landlord.")  # FAST_MODEL resident, as it is on the demo laptop
+    llm.embed([config.EMBED_DOC_PREFIX + "warm-up"])
+    path = real_vault / "notes" / "inbox_note.md"
+    shutil.copy(DEMO / "inbox_note.md", path)
+    start = time.perf_counter()
+    res = ingest.ingest_file(path)
+    seconds = time.perf_counter() - start
+    total = seconds + config.WATCH_DEBOUNCE_S
+    print(f"\n[entities llm] drop-to-ingested for inbox_note.md: ingest_file {seconds:.1f} s + watcher debounce "
+          f"{config.WATCH_DEBOUNCE_S:g} s = {total:.1f} s (chunks {res.chunks_added}, entities added "
+          f"{res.entities_added}); target <= 15 s")
+    assert res.chunks_added == 1
+    assert total < 60

@@ -4,8 +4,11 @@ Retrieval is hybrid search (`embed.search`): up to TOP_K chunks, at most MAX_PER
 MIN_SCORE dropped once MIN_CHUNKS are kept; history + chunk text is then held to CONTEXT_TOKENS (estimated,
 history trimmed first), and chunk text is compacted (`model_text`) before it is sent. On the CPU laptop (AC
 power, power saver off) prefill runs at ~50 tokens/s on 7b and ~115 on 3b, and power saver halves it, so prompt
-size is first-token latency. Graph neighbours (step 6) and current facts (step 7) are added later. Chunks go to the model wrapped in `<chunk n=.. source=..>` delimiters and the system prompt says
-their contents are untrusted data, never instructions. The model only writes the answer; the citation check
+size is first-token latency. Graph neighbours (step 6): entities the question names (`entities.find_in_question`)
+lift the source chunks of their open edges by GRAPH_BOOST (a chunk search did not return enters at GRAPH_BOOST)
+before the same selection and budget apply; `meta.entities_used` lists the named entities, then the neighbours
+whose linking chunk was sent. Current facts (step 7) are added later. Chunks go to the model wrapped in
+`<chunk n=.. source=..>` delimiters and the system prompt says their contents are untrusted data, never instructions. The model only writes the answer; the citation check
 is plain code over the finished text.
 
 `citation_ok` (CONTRACT §10): false when any `[n]` is not a supplied chunk or the answer has no citation.
@@ -34,7 +37,7 @@ from collections import Counter
 from collections.abc import Iterator
 
 from kavach import config, db
-from kavach.brain import embed, llm
+from kavach.brain import embed, entities, llm
 from kavach.models import (
     ChatDoneData,
     ChatDoneEvent,
@@ -59,6 +62,7 @@ SEARCH_K = 24         # candidates searched before the per-document cap and scor
 MAX_PER_DOC = 2
 MIN_SCORE = 0.3       # normalised hybrid score (the best chunk is near 1)
 MIN_CHUNKS = 2        # kept even below MIN_SCORE
+GRAPH_BOOST = 0.3     # added to chunks linked to a named entity; one outside the candidates scores exactly this
 HISTORY_TURNS = 6
 CONTEXT_TOKENS = config.CHAT_CONTEXT_TOKENS  # estimated history + chunk tokens; CPU prefill is prompt-bound
 QUOTE_CHARS = 200
@@ -134,14 +138,44 @@ def _select(ranked: list[ScoredChunk]) -> list[ScoredChunk]:
     return picked
 
 
-def retrieve(question: str) -> tuple[list[ScoredChunk], list[str]]:
-    """(chunks for the prompt, excluded_docs). Documents whose signature check failed are never used; their
-    paths are reported when they would otherwise have been selected (CONTRACT §10)."""
-    ranked = embed.search(question, k=SEARCH_K)
+def with_graph(ranked: list[ScoredChunk], named: list[str]) -> tuple[list[ScoredChunk], dict[str, list[str]]]:
+    """Candidates re-ranked by the graph: every source chunk of an open edge touching a named entity gets
+    +GRAPH_BOOST (added at GRAPH_BOOST if search did not return it). Returns the list, best first (stable), and
+    {chunk_id: entity ids at the far end of its edges}."""
+    named_set = set(named)
+    linked: dict[str, list[str]] = {}
+    for e in db.current_edges(named):
+        ends = linked.setdefault(e["source_chunk_id"], [])
+        for end in (e["src"], e["dst"]):
+            if end not in named_set and end not in ends:
+                ends.append(end)
+    if not linked:
+        return ranked, {}
+    have = {c.chunk_id for c in ranked}
+    boosted = [c.model_copy(update={"score": c.score + GRAPH_BOOST}) if c.chunk_id in linked else c for c in ranked]
+    boosted += [ScoredChunk(**row, score=GRAPH_BOOST)
+                for row in db.chunks_by_ids(cid for cid in linked if cid not in have)]
+    return sorted(boosted, key=lambda c: -c.score), linked
+
+
+def retrieve(question: str) -> tuple[list[ScoredChunk], list[str], list[str], dict[str, list[str]]]:
+    """(chunks for the prompt, excluded_docs, entity ids the question names, {chunk_id: neighbour ids}).
+    Documents whose signature check failed are never used; their paths are reported when they would otherwise
+    have been selected (CONTRACT §10)."""
+    named = entities.find_in_question(question)
+    ranked, linked = with_graph(embed.search(question, k=SEARCH_K), named)
     docs = db.document_status(c.doc_id for c in ranked)
     invalid = {d for d, row in docs.items() if row["signature_status"] == "invalid"}
     excluded = list(dict.fromkeys(docs[c.doc_id]["path"] for c in _select(ranked) if c.doc_id in invalid))
-    return _select([c for c in ranked if c.doc_id not in invalid]), excluded
+    return _select([c for c in ranked if c.doc_id not in invalid]), excluded, named, linked
+
+
+def entities_used(named: list[str], linked: dict[str, list[str]], chunks: list[ScoredChunk]) -> list[str]:
+    """The named entities, then the neighbours reached through a chunk that is actually sent."""
+    used = list(named)
+    for c in chunks:
+        used += [e for e in linked.get(c.chunk_id, []) if e not in used]
+    return used
 
 
 def _history(history: list[ChatTurn]) -> list[dict]:
@@ -304,10 +338,10 @@ def check(answer: str, refs: list[ChunkRef], chunks: list[ScoredChunk]) -> ChatF
 def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]:
     """§10 events: meta, token..., final, done. An LLMError mid-stream propagates (api.sse reports it)."""
     start = time.perf_counter()
-    chunks, excluded = retrieve(question)
+    chunks, excluded, named, linked = retrieve(question)
     history_msgs, chunks = fit_context(_history(history), chunks)
     refs = [ChunkRef(n=n, chunk_id=c.chunk_id, doc_id=c.doc_id, locator=c.locator) for n, c in enumerate(chunks, 1)]
-    yield ChatMetaEvent(data=ChatMetaData(entities_used=[], chunks=refs))
+    yield ChatMetaEvent(data=ChatMetaData(entities_used=entities_used(named, linked, chunks), chunks=refs))
 
     first_token_ms: int | None = None
     stats: dict[str, int] = {}
@@ -358,6 +392,7 @@ def warm_up() -> dict[str, float | str]:
         start = time.perf_counter()
         llm.embed([config.EMBED_QUERY_PREFIX + "warm-up"])
         timings["embed_s"] = round(time.perf_counter() - start, 1)
+        entities.warm()
     except llm.LLMError as exc:
         timings["error"] = str(exc)[:200]
         log.warning("warm-up failed (first answer will be slow): %s", timings["error"])

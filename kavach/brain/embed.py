@@ -15,7 +15,7 @@ import re
 import threading
 import time
 import unicodedata
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
@@ -218,14 +218,31 @@ def _minmax(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return out
 
 
-def _query_vector(query: str) -> np.ndarray | None:
+_QUERY_CACHE_SIZE = 16
+_query_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+_query_lock = threading.Lock()
+
+
+def query_vector(query: str) -> np.ndarray | None:
+    """Unit vector of `EMBED_QUERY_PREFIX + query`, or None if Ollama is unavailable. The last few are cached, so
+    search and chat's entity match share one embedding call per question."""
+    with _query_lock:
+        if query in _query_cache:
+            _query_cache.move_to_end(query)
+            return _query_cache[query]
     try:
         v = llm.embed([config.EMBED_QUERY_PREFIX + query])[0].astype(np.float32)
     except llm.LLMError as exc:
         log.warning("query embedding failed, keyword-only search: %s", exc)
         return None
     norm = float(np.linalg.norm(v))
-    return v / norm if norm > 0 else None
+    if norm <= 0:
+        return None
+    with _query_lock:
+        _query_cache[query] = v / norm
+        while len(_query_cache) > _QUERY_CACHE_SIZE:
+            _query_cache.popitem(last=False)
+        return _query_cache[query]
 
 
 def search(query: str, k: int = 8) -> list[ScoredChunk]:
@@ -245,7 +262,7 @@ def search(query: str, k: int = 8) -> list[ScoredChunk]:
         return []
     keyword = _bm25(idx, tokenize(query))
     keyword_n = _minmax(keyword, np.ones(n, bool))
-    qvec = _query_vector(query) if idx.has_vector.any() else None
+    qvec = query_vector(query) if idx.has_vector.any() else None
     if qvec is None:
         score, signal = keyword_n, keyword > 0
     else:

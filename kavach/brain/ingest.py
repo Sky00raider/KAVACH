@@ -1,7 +1,10 @@
-"""PDF / notes / WhatsApp -> documents + chunks (+ entities and facts, BRAIN steps 6-7).
+"""PDF / notes / WhatsApp -> documents + chunks + entities and edges (+ facts, BRAIN step 7).
 
 Paths are stored vault-relative (CONTRACT §8). A changed file keeps its doc_id, gets new chunks and has its
 old facts and edges closed, never deleted. An unchanged file (same text_hash) is not re-chunked or re-embedded.
+Entities and edges (`entities.index_document`) are extracted after the chunks are stored, except for documents
+whose signature check failed: those get none, and a document that turns `invalid` without a text change has its
+edges and facts closed. A document whose status leaves `invalid` is re-ingested so it gets them.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from kavach import config, db, textnorm
-from kavach.brain import embed
+from kavach.brain import embed, entities
 from kavach.db import new_id, utc_now
 from kavach.models import DocSource, IngestResult, SignatureResult
 from kavach.trust import audit, issuer_check
@@ -142,9 +145,12 @@ def ingest_file(path: Path) -> IngestResult:
 
     sig = issuer_check.verify_pdf(path) if source == "pdf" else SignatureResult(status="unsigned")
 
-    if existing and existing["removed_at"] is None and existing["text_hash"] == digest:
+    leaves_invalid = existing is not None and existing["signature_status"] == "invalid" and sig.status != "invalid"
+    if existing and existing["removed_at"] is None and existing["text_hash"] == digest and not leaves_invalid:
         if (existing["signature_status"], existing["iss"]) != (sig.status, sig.iss):
             db.update("documents", "doc_id", doc_id, {"signature_status": sig.status, "iss": sig.iss})
+            if sig.status == "invalid":
+                db.close_document_knowledge(doc_id, closed_on=date.today().isoformat())
         return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status)
 
     chunks = [{"chunk_id": new_id("c"), "locator": locator, "text": piece}
@@ -159,8 +165,16 @@ def ingest_file(path: Path) -> IngestResult:
                       chunks, closed_on=date.today().isoformat())
     embed.invalidate()
 
+    entities_added = 0
+    if sig.status != "invalid":  # a tampered document contributes nothing to the graph
+        links = [(target, c["chunk_id"]) for c in chunks for target in note_links(c["text"])] if source == "note" else []
+        first_link: dict[str, tuple[str, str]] = {}
+        for target, chunk_id in links:
+            first_link.setdefault(entities.normalise_name(target), (target, chunk_id))
+        entities_added = entities.index_document(rel, source, chunks, list(first_link.values()))
+
     result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status,
-                          chunks_added=len(chunks))
+                          chunks_added=len(chunks), entities_added=entities_added)
     if sig.status == "invalid":
         audit.log("document_signature_failed", doc_id, {"path": rel, "doc_id": doc_id, "iss": sig.iss,
                                                         "reason": sig.detail})

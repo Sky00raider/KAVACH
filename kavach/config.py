@@ -50,6 +50,9 @@ GATE_PORT = int(_env("GATE_PORT", "8001"))
 REQUESTER_PORT = int(_env("REQUESTER_PORT", "9000"))
 OWNER_URL = _env("OWNER_URL", f"http://127.0.0.1:{API_PORT}")  # requester side
 
+# The owner (entity e_owner); matches the mock issuers' profile so documents about them resolve to one entity
+OWNER_NAME = _env("OWNER_NAME", "Ananya Iyer")
+
 # Ingestion
 CHUNK_SIZE = int(_env("CHUNK_SIZE", "600"))
 CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "100"))

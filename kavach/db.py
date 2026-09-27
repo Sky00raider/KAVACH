@@ -180,6 +180,12 @@ def _close_document_knowledge(conn: sqlite3.Connection, doc_id: str, closed_on: 
                  (closed_on, doc_id))
 
 
+def close_document_knowledge(doc_id: str, closed_on: str) -> None:
+    """Close the doc's current facts and edges without touching its chunks (its signature check started failing)."""
+    with connect() as conn:
+        _close_document_knowledge(conn, doc_id, closed_on)
+
+
 def store_document(doc: dict[str, Any], chunks: list[dict[str, Any]], closed_on: str) -> None:
     """Upsert one documents row and replace all its chunks; knowledge from the old chunks is closed on `closed_on`."""
     row = {c: doc.get(c) for c in _DOC_COLS}
@@ -226,6 +232,57 @@ def set_chunk_embeddings(pairs: list[tuple[str, bytes]]) -> None:
     """Store `(chunk_id, blob)` embeddings; ids of chunks deleted meanwhile are ignored."""
     with connect() as conn:
         conn.executemany("UPDATE chunks SET embedding = ? WHERE chunk_id = ?", [(b, cid) for cid, b in pairs])
+
+
+# --- entities and graph (brain/entities.py, chat retrieval) ----------------------
+
+
+def entities_by_norm(norm_names: Iterable[str]) -> list[dict[str, Any]]:
+    """Entity rows whose norm_name is one of `norm_names`, oldest first."""
+    names = list(dict.fromkeys(norm_names))
+    if not names:
+        return []
+    return fetch_all(f"SELECT * FROM entities WHERE norm_name IN ({', '.join('?' * len(names))}) ORDER BY rowid",
+                     tuple(names))
+
+
+def entity_index() -> list[dict[str, Any]]:
+    """entity_id, type, name, norm_name of every entity, oldest first (question matching in chat)."""
+    return fetch_all("SELECT entity_id, type, name, norm_name FROM entities ORDER BY rowid")
+
+
+def entities_signature() -> tuple:
+    """Cheap fingerprint of the entities table; changes when an entity is added or renamed."""
+    row = fetch_one("SELECT COUNT(*) AS n, COALESCE(MAX(rowid), 0) AS last, "
+                    "COALESCE(SUM(length(norm_name)), 0) AS chars FROM entities")
+    return (str(db_path()), row["n"], row["last"], row["chars"])
+
+
+def insert_edges(edges: list[dict[str, Any]]) -> None:
+    cols = ("edge_id", "src", "rel", "dst", "valid_from", "valid_to", "source_chunk_id")
+    with connect() as conn:
+        conn.executemany(f"INSERT INTO edges ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                         [tuple(e.get(c) for c in cols) for e in edges])
+
+
+def current_edges(entity_ids: Iterable[str]) -> list[dict[str, Any]]:
+    """Open edges (valid_to NULL) with an end in `entity_ids` whose source chunk still exists, oldest first."""
+    ids = list(dict.fromkeys(entity_ids))
+    if not ids:
+        return []
+    marks = ", ".join("?" * len(ids))
+    return fetch_all(f"SELECT e.* FROM edges e JOIN chunks c ON c.chunk_id = e.source_chunk_id "
+                     f"WHERE e.valid_to IS NULL AND (e.src IN ({marks}) OR e.dst IN ({marks})) ORDER BY e.rowid",
+                     (*ids, *ids))
+
+
+def chunks_by_ids(chunk_ids: Iterable[str]) -> list[dict[str, Any]]:
+    """chunk_id, doc_id, locator, text for the given ids that exist, in insertion order."""
+    ids = list(dict.fromkeys(chunk_ids))
+    if not ids:
+        return []
+    return fetch_all(f"SELECT chunk_id, doc_id, locator, text FROM chunks WHERE chunk_id IN "
+                     f"({', '.join('?' * len(ids))}) ORDER BY rowid", tuple(ids))
 
 
 # --- typed readers used by the API --------------------------------------------

@@ -56,8 +56,15 @@ def fake_parse_map(text: str):
 @pytest.fixture(autouse=True)
 def _no_ollama_outside_llm_tests(request, monkeypatch):
     """Tests not marked `llm` never call Ollama: questions reaching parse_question (consent, MCP, eval) are
-    mapped by `fake_parse_map` instead of the model."""
+    mapped by `fake_parse_map` instead of the model, and ingest's entity extraction finds nothing (tests that
+    need entities patch `entities.extract` themselves). Query and entity-name vectors are never reused across
+    tests, since tests fake `llm.embed` differently."""
+    from kavach.brain import embed, entities
+
+    embed._query_cache.clear()
+    entities._name_vectors.clear()
     if request.node.get_closest_marker("llm") is None:
         from kavach.brain import parse_question
 
         monkeypatch.setattr(parse_question, "_map", fake_parse_map)
+        monkeypatch.setattr(entities, "extract", lambda text: entities.Extraction())
