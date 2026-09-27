@@ -202,7 +202,8 @@ def test_ingest_events_come_from_ingested_audit_entries(client):
 
 def test_chat_memory_and_decisions(client):
     r = client.post("/api/chat", headers=TOKEN, json={"question": "rent?", "history": []})
-    assert ChatResult.model_validate(r.json()).citation_ok
+    out = ChatResult.model_validate(r.json())  # empty vault: fixed answer, no model call
+    assert not out.citation_ok and out.flags == ["no_context", "not_in_vault"]
     r = client.post("/api/memory", headers=TOKEN, json={"statement": "My salary went up"})
     TeachResult.model_validate(r.json())
     r = client.post("/api/memory/candidates/mc_1/decision", headers=TOKEN, json={"remember": True})

@@ -40,7 +40,7 @@ def test_brain_stubs_return_contract_types(fresh_db):
     assert isinstance(planner.plan("email my landlord"), Plan)
 
 
-def test_chat_stream_event_order():
+def test_chat_stream_event_order(fresh_db):  # real chat (step 4): empty vault
     events = [e.event for e in chat.answer_stream("rent?", [])]
     assert events[0] == "meta" and events[-2:] == ["final", "done"] and "token" in events
     first, final = next(chat.answer_stream("q", [])), list(chat.answer_stream("q", []))[-2]

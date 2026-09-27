@@ -58,9 +58,9 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 1. `brain/llm.py`: `chat`, `chat_stream` (NDJSON, 120 s per-chunk read timeout), `structured` (retry once with the validation error appended, then `LLMError`), `embed` (one batched `/api/embed`, float32 `(n, EMBED_DIM)`, no call for empty input); every failure is `LLMError`; `keep_alive` on every call, `temperature 0` + `num_ctx=config.NUM_CTX` on chat/structured. `tests/test_llm.py`: mock-transport tests + llm tests incl. a ~5k-token recall test (fails without `num_ctx`: Ollama's default context truncated it to ~2k tokens)
 - 2. `brain/ingest.py`: PDFs (per-page locators, `textnorm` hash, `issuer_check.verify_pdf`, `doc_type` by keyword), notes (`note: x.md`), `.txt` as plain text until step 11; ~600/100 boundary-aware chunks; batched embeddings (NULL if Ollama is down); vault-relative paths; unchanged `text_hash` is skipped; a changed file keeps its `doc_id`, replaces chunks and closes (never deletes) its facts and edges; `remove_file` likewise; chunks embedded with `EMBED_DOC_PREFIX`; audits `ingested` + `document_signature_failed`, `remove_file` audits `document_removed`; `note_links()` parses `[[links]]` for step 6. `brain/watcher.py`: `pdfs/notes/chats` only, ignores temp/lock/partial files (`.tmp`, `.crdownload`, `~$`, dotfiles...), per-path 2 s debounce on one worker, file existence decides ingest vs remove, PermissionError retried with backoff for 10 s, catch-up on start. `db.py`: `get_document_by_path`, `store_document`, `remove_document` (one transaction each). `tests/test_ingest.py`, `tests/test_watcher.py`
 - 3. `brain/embed.py` hybrid search: 0.7 cosine + 0.3 BM25-lite, both min-max normalised over the vault (equal values -> 0; a lone chunk is still returned); queries embedded with `EMBED_QUERY_PREFIX`; keyword-only when the query can't be embedded; index (unit-vector matrix + postings) cached, rebuilt on `invalidate()` (ingest/remove) or a `db.chunks_signature()` change; NULL or wrong-sized vectors backfilled in a background thread off-lock (searches use the old index; 60 s retry after a failure); `embed_documents()` moved here from ingest. `brain/amounts.py` (`normalize_amounts`, `parse_amount`: ₹/Rs/INR, Indian + Western grouping, k/lakh/L/crore, ranges left alone) feeds the tokeniser; step 8 reuses it. API lifespan warms the index in a thread; `KAVACH_WATCH=0` (new, CONTRACT §3, approved) skips watcher + warm-up, set in conftest. `tests/test_embed.py`, `tests/test_amounts.py`; llm test: 6 real chunks, 4 questions (2 with no keyword overlap), right chunk first in each
+- 4. `brain/chat.py`: top-8 hybrid chunks sent as `<chunk n source>` blocks in `<vault>` (delimiters in chunk text escaped), system prompt treats chunk contents as untrusted data; last 6 history turns within 3000 chars, old `[n]` stripped; stream `meta` -> `token`s -> `final` -> `done`, `LLMError` propagates (sync `/api/chat` = collected stream, so 500 for now); empty retrieval skips the model (`no_context`). Citation check in code: `[1]`, `[1][2]`, `[1, 2]`; `citation_ok` per §10; quote = best-overlap chunk sentence (exact substring, <= 200 chars); `flags` `no_context`/`not_in_vault` (normalised "don't have that")/`no_citation`/`invalid_citation`/`uncited_sentence`, listed in CONTRACT §10 (approved). `entities_used=[]` until step 6, `memory_candidates=[]` until step 7. `tests/test_chat.py`; llm tests (qwen2.5:7b, warm model): right note cited, `not_in_vault`, two-note answer cites both, prompt-injection note ignored; first token 4.3-7.6 s, full answer 7-13 s on the CPU laptop (over the 5 s first-token target; revisit with prompt size / `num_ctx` / GPU box)
 
 **Next**
-4. `chat.py` sync + stream with citation check
 5. `pages/brain/Ask`: streaming chat, citation popovers, live auto-ingest strip (M1)
 6. `entities.py` + graph-neighbour retrieval in chat
 7. `extract.py` with grounding, `memory.py` with supersession + candidates + teach; "Remember this?" chips
@@ -68,6 +68,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 9. `agent/planner.py`
 10. `pages/brain/Vault`: documents, signature badges, entities, graph, `entities_used` highlight (M3)
 11. WhatsApp ingestion; `pages/brain/Memory`: timeline, superseded values, "Teach KAVACH"
+12. (later) Follow-up retrieval in chat: "and when does it end?" searches the question alone; fold in the previous user turn once DATA's notes exist to test against
 
 **Blocked**
 - (none)
@@ -92,6 +93,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 11. `scripts/run_eval.py` and `scripts/reset_demo.py`
 12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe; CONTRACT §12 change via CONTRACT owner
 13. (low priority) Document the §10 stream in OpenAPI (`responses=` on `/api/chat/stream` with the `ChatEvent` models) so `gen:types` covers it; then drop the derived stream types in `client.ts`
+14. (low priority) `api.py`: map `brain.llm.LLMError` to `503` on `/api/chat` (today it surfaces as `500`; the stream already sends an `error` event)
 
 **Blocked**
 - (none)
