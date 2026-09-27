@@ -14,6 +14,7 @@ _DIRS = {"DB_PATH": "kavach.db", "VAULT_DIR": "vault", "OUTBOX_DIR": "outbox", "
 for _name, _sub in _DIRS.items():
     os.environ[_name] = str(_TMP / _sub)
 os.environ["OWNER_TOKEN"] = "test-owner-token"
+os.environ["KAVACH_WATCH"] = "0"  # no vault watcher or index warm-up in the API lifespan
 
 ROOT = Path(__file__).resolve().parent.parent
 

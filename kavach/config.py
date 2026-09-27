@@ -53,6 +53,8 @@ OWNER_URL = _env("OWNER_URL", f"http://127.0.0.1:{API_PORT}")  # requester side
 CHUNK_SIZE = int(_env("CHUNK_SIZE", "600"))
 CHUNK_OVERLAP = int(_env("CHUNK_OVERLAP", "100"))
 WATCH_DEBOUNCE_S = float(_env("WATCH_DEBOUNCE_S", "2"))
+# "0" turns off the owner API's vault watcher and search-index warm-up (tests)
+KAVACH_WATCH = _env("KAVACH_WATCH", "1") != "0"
 
 # Disclosure ledger and wallet
 LEDGER_MIN_WIDTH: dict[str, int] = json.loads(_env("LEDGER_MIN_WIDTH", '{"income": 25000, "percentage": 15}'))
