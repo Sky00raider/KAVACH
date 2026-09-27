@@ -65,14 +65,33 @@ export interface VNode {
   fy?: number
 }
 
+/** A passage an edge was read from. */
+export interface EdgeSource {
+  chunk_id: string
+  doc_id: string
+}
+
+/** Every stored edge with the same (src, rel, dst), shown as one line: each document keeps its own edge. */
+export interface EdgeGroup {
+  key: string
+  src: string
+  rel: GraphEdge["rel"]
+  dst: string
+  edges: GraphEdge[]
+  /** Distinct source passages, in edge order. */
+  sources: EdgeSource[]
+  docIds: string[]
+  /** Every edge of the group is closed. */
+  closed: boolean
+}
+
 export interface VLink {
   id: string
   source: string | VNode
   target: string | VNode
   rel: GraphEdge["rel"]
   closed: boolean
-  doc_id: string | null
-  source_chunk_id: string | null
+  docIds: string[]
 }
 
 export function isAlwaysLabelled(n: { id: string; type: EntityType }): boolean {
@@ -94,6 +113,27 @@ export function relLabel(rel: string): string {
 
 export function isCurrent(e: Pick<GraphEdge, "valid_to">): boolean {
   return e.valid_to == null
+}
+
+/** Group edges by (src, rel, dst); closed edges are left out unless `showClosed`. */
+export function groupEdges(edges: GraphEdge[], showClosed = false): EdgeGroup[] {
+  const groups = new Map<string, EdgeGroup>()
+  for (const e of edges) {
+    if (!showClosed && !isCurrent(e)) continue
+    const key = `${e.src}|${e.rel}|${e.dst}`
+    let g = groups.get(key)
+    if (!g) {
+      g = { key, src: e.src, rel: e.rel, dst: e.dst, edges: [], sources: [], docIds: [], closed: true }
+      groups.set(key, g)
+    }
+    g.edges.push(e)
+    g.closed &&= !isCurrent(e)
+    if (e.source_chunk_id && e.doc_id && !g.sources.some((s) => s.chunk_id === e.source_chunk_id)) {
+      g.sources.push({ chunk_id: e.source_chunk_id, doc_id: e.doc_id })
+    }
+    if (e.doc_id && !g.docIds.includes(e.doc_id)) g.docIds.push(e.doc_id)
+  }
+  return [...groups.values()]
 }
 
 function jitter(id: string): [number, number] {
@@ -126,10 +166,9 @@ export function buildView(
     byId.set(n.id, node)
   }
   const links: VLink[] = []
-  for (const e of graph.edges) {
-    if (!byId.has(e.src) || !byId.has(e.dst)) continue
-    if (!opts.showClosed && !isCurrent(e)) continue
-    links.push({ id: e.id, source: e.src, target: e.dst, rel: e.rel, closed: !isCurrent(e), doc_id: e.doc_id ?? null, source_chunk_id: e.source_chunk_id ?? null })
+  for (const g of groupEdges(graph.edges, opts.showClosed)) {
+    if (!byId.has(g.src) || !byId.has(g.dst)) continue
+    links.push({ id: g.key, source: g.src, target: g.dst, rel: g.rel, closed: g.closed, docIds: g.docIds })
   }
   for (const n of nodes) {
     if (n.x !== undefined) continue
@@ -158,31 +197,30 @@ export function docEntityIds(graph: Graph, docId: string, showClosed = false): S
 }
 
 export interface Neighbour {
-  edge: GraphEdge
+  group: EdgeGroup
   other: GraphNodeIn
   outgoing: boolean
 }
 
+/** One entry per (rel, other end, direction), with every source of the collapsed edges. */
 export function neighbours(graph: Graph, id: string, showClosed = false): Neighbour[] {
   const nodes = new Map(graph.nodes.map((n) => [n.id, n]))
   const out: Neighbour[] = []
-  for (const e of graph.edges) {
-    if (!showClosed && !isCurrent(e)) continue
-    const outgoing = e.src === id
-    if (!outgoing && e.dst !== id) continue
-    const other = nodes.get(outgoing ? e.dst : e.src)
-    if (other) out.push({ edge: e, other, outgoing })
+  for (const g of groupEdges(graph.edges, showClosed)) {
+    const outgoing = g.src === id
+    if (!outgoing && g.dst !== id) continue
+    const other = nodes.get(outgoing ? g.dst : g.src)
+    if (other) out.push({ group: g, other, outgoing })
   }
-  return out.sort((a, b) => a.edge.rel.localeCompare(b.edge.rel) || a.other.name.localeCompare(b.other.name))
+  return out.sort((a, b) => a.group.rel.localeCompare(b.group.rel) || a.other.name.localeCompare(b.other.name))
 }
 
-/** Current-edge degree per entity. */
+/** Distinct current connections per entity (duplicate edges from several documents count once). */
 export function degrees(graph: Graph): Map<string, number> {
   const out = new Map<string, number>()
-  for (const e of graph.edges) {
-    if (!isCurrent(e)) continue
-    out.set(e.src, (out.get(e.src) ?? 0) + 1)
-    out.set(e.dst, (out.get(e.dst) ?? 0) + 1)
+  for (const g of groupEdges(graph.edges)) {
+    out.set(g.src, (out.get(g.src) ?? 0) + 1)
+    out.set(g.dst, (out.get(g.dst) ?? 0) + 1)
   }
   return out
 }

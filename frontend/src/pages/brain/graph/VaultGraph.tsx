@@ -316,7 +316,7 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
           nodePointerAreaPaint={paintPointer}
           nodeVisibility={visible}
           nodeLabel={() => ""}
-          linkVisibility={(l) => !docFilter || l.doc_id === docFilter.docId}
+          linkVisibility={(l) => !docFilter || l.docIds.includes(docFilter.docId)}
           linkColor={linkColor}
           linkWidth={(l) => (emphasis && emphasis.has(endId(l.source)) && emphasis.has(endId(l.target)) ? 1.6 : 1)}
           linkLineDash={(l) => (l.closed ? [2, 2] : null)}

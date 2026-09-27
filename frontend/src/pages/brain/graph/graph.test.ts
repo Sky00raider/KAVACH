@@ -17,6 +17,7 @@ import {
   fitLabelPx,
   fitTransform,
   gravity,
+  groupEdges,
   isAlwaysLabelled,
   issuerName,
   labelRect,
@@ -64,14 +65,14 @@ describe("graph view", () => {
   it("leaves hidden types and closed edges out, marks the owner", () => {
     const v = buildView(GRAPH, { hiddenTypes: new Set(["DOCUMENT"]), showClosed: false })
     expect(v.nodes.map((n) => n.id)).toEqual([OWNER_ID, "e_ravi", "e_flat", "e_rent", "e_lone"])
-    expect(v.links.map((l) => l.id)).toEqual(["x_1", "x_2", "x_4"])
+    expect(v.links.map((l) => l.id)).toEqual(["e_ravi|LANDLORD_OF|e_owner", "e_owner|WORKS_ON|e_flat", "e_rent|PART_OF|e_flat"])
     const owner = v.nodes[0]
     expect(owner).toMatchObject({ owner: true, always: true, r: OWNER_R, label: "Ananya Iyer (you)" })
     expect(v.nodes[3]).toMatchObject({ owner: false, always: false, r: NODE_R })
 
     const all = buildView(GRAPH, { hiddenTypes: new Set(), showClosed: true })
-    expect(all.links.map((l) => l.id)).toEqual(["x_1", "x_2", "x_3", "x_4", "x_5"])
-    expect(all.links.find((l) => l.id === "x_5")).toMatchObject({ closed: true, doc_id: null })
+    expect(all.links).toHaveLength(5)
+    expect(all.links.find((l) => l.id === "e_ravi|RELATES_TO|e_rent")).toMatchObject({ closed: true, docIds: [] })
   })
 
   it("keeps positions and pins across rebuilds and starts new nodes next to a placed neighbour", () => {
@@ -89,6 +90,33 @@ describe("graph view", () => {
     expect(again.nodes.find((n) => n.id === "e_note")).toMatchObject({ x: note.x, y: note.y })
   })
 
+  it("collapses duplicate (src, rel, dst) edges into one link that keeps every source", () => {
+    const dup: Graph = {
+      nodes: GRAPH.nodes,
+      edges: [
+        edge("x_1", "e_ravi", OWNER_ID, { rel: "LANDLORD_OF", doc_id: "d_note", source_chunk_id: "c_a" }),
+        edge("x_2", "e_ravi", OWNER_ID, { rel: "LANDLORD_OF", doc_id: "d_pdf", source_chunk_id: "c_b" }),
+        edge("x_3", "e_ravi", OWNER_ID, { rel: "LANDLORD_OF", doc_id: "d_pdf", source_chunk_id: "c_b" }),
+        edge("x_4", "e_ravi", OWNER_ID, { rel: "LANDLORD_OF", doc_id: null, source_chunk_id: "c_gone", valid_to: "2026-09-01" }),
+        edge("x_5", OWNER_ID, "e_ravi", { rel: "PAID", doc_id: "d_pdf" }),              // other direction and rel
+      ],
+    }
+    const groups = groupEdges(dup.edges)
+    expect(groups.map((g) => [g.key, g.edges.length])).toEqual([["e_ravi|LANDLORD_OF|e_owner", 3], ["e_owner|PAID|e_ravi", 1]])
+    expect(groups[0].sources).toEqual([{ chunk_id: "c_a", doc_id: "d_note" }, { chunk_id: "c_b", doc_id: "d_pdf" }])
+    expect(groups[0]).toMatchObject({ docIds: ["d_note", "d_pdf"], closed: false })
+    const withClosed = groupEdges(dup.edges, true)
+    expect(withClosed[0]).toMatchObject({ closed: false })
+    expect(withClosed[0].edges).toHaveLength(4)
+    expect(groupEdges([dup.edges[3]], true)[0].closed).toBe(true)
+
+    const v = buildView(dup, { hiddenTypes: new Set(), showClosed: false })
+    expect(v.links.map((l) => [l.rel, l.docIds])).toEqual([["LANDLORD_OF", ["d_note", "d_pdf"]], ["PAID", ["d_pdf"]]])
+    const n = neighbours(dup, "e_ravi")
+    expect(n.map((x) => [x.group.rel, x.group.sources.length])).toEqual([["LANDLORD_OF", 2], ["PAID", 1]])
+    expect(degrees(dup).get("e_ravi")).toBe(2)
+  })
+
   it("maps a document to the entities its edges touch", () => {
     expect([...docEntityIds(GRAPH, "d_note")].sort()).toEqual(["e_flat", "e_note", "e_rent"])
     expect([...docEntityIds(GRAPH, "d_chat")].sort()).toEqual(["e_owner", "e_ravi"])
@@ -104,7 +132,7 @@ describe("graph view", () => {
 
   it("lists neighbours with direction, current only unless asked", () => {
     const n = neighbours(GRAPH, "e_ravi")
-    expect(n.map((x) => [x.edge.rel, x.other.id, x.outgoing])).toEqual([["LANDLORD_OF", OWNER_ID, true]])
+    expect(n.map((x) => [x.group.rel, x.other.id, x.outgoing])).toEqual([["LANDLORD_OF", OWNER_ID, true]])
     expect(neighbours(GRAPH, "e_ravi", true)).toHaveLength(2)
     expect(neighbours(GRAPH, "e_flat").map((x) => x.outgoing)).toEqual([true, false, false])
     expect(degrees(GRAPH).get("e_flat")).toBe(3)

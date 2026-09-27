@@ -224,30 +224,39 @@ function EntityPanel({ graph, entity, id, docs, showClosed, onSelect, onClose }:
         </p>
         {!links.length && <p className="px-1 text-xs text-muted-foreground">No connections yet.</p>}
         <ul className="space-y-0.5">
-          {links.map(({ edge, other, outgoing }) => {
-            const doc = edge.doc_id ? docs.get(edge.doc_id) : undefined
+          {links.map(({ group, other, outgoing }) => {
             const Arrow = outgoing ? ArrowRight : ArrowLeft
+            const closedOn = group.closed ? group.edges.map((e) => e.valid_to ?? "").sort().at(-1) : undefined
             return (
-              <li key={edge.id} className={cn("flex items-center gap-1.5 rounded px-1 py-1 text-xs hover:bg-accent/60", edge.valid_to && "opacity-60")}>
-                <Arrow className="size-3 shrink-0 text-muted-foreground" />
-                <span className="shrink-0 text-muted-foreground">{relLabel(edge.rel)}</span>
-                <button type="button" onClick={() => onSelect(other.id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:underline">
-                  <Dot type={other.type} owner={other.id === OWNER_ID} className="size-2" />
-                  <span className="truncate" title={other.name}>{displayName(other)}</span>
-                </button>
-                {edge.source_chunk_id && edge.doc_id && (
-                  <SourcePopover source={{ n: 0, chunk_id: edge.source_chunk_id, doc_id: edge.doc_id, locator: "" }} doc={doc}>
-                    <button
-                      type="button"
-                      className="inline-flex max-w-28 shrink-0 items-center gap-1 rounded border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                      title={doc ? `Source: ${doc.path}` : "Source passage"}
-                    >
-                      <SourceIcon source={doc?.source} className="size-3" />
-                      <span className="truncate">{doc ? basename(doc.path) : "source"}</span>
-                    </button>
-                  </SourcePopover>
+              <li key={group.key} className={cn("rounded px-1 py-1 text-xs hover:bg-accent/60", group.closed && "opacity-60")}>
+                <div className="flex items-center gap-1.5">
+                  <Arrow className="size-3 shrink-0 text-muted-foreground" />
+                  <span className="shrink-0 text-muted-foreground">{relLabel(group.rel)}</span>
+                  <button type="button" onClick={() => onSelect(other.id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:underline">
+                    <Dot type={other.type} owner={other.id === OWNER_ID} className="size-2" />
+                    <span className="truncate" title={other.name}>{displayName(other)}</span>
+                  </button>
+                  {closedOn && <span className="shrink-0 text-[10px] text-muted-foreground">closed {closedOn}</span>}
+                </div>
+                {group.sources.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1 pl-4.5">
+                    {group.sources.map((src) => {
+                      const doc = docs.get(src.doc_id)
+                      return (
+                        <SourcePopover key={src.chunk_id} source={{ n: 0, chunk_id: src.chunk_id, doc_id: src.doc_id, locator: "" }} doc={doc}>
+                          <button
+                            type="button"
+                            className="inline-flex max-w-40 items-center gap-1 rounded border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                            title={doc ? `Source: ${doc.path}` : "Source passage"}
+                          >
+                            <SourceIcon source={doc?.source} className="size-3" />
+                            <span className="truncate">{doc ? basename(doc.path) : "source"}</span>
+                          </button>
+                        </SourcePopover>
+                      )
+                    })}
+                  </div>
                 )}
-                {edge.valid_to && <span className="shrink-0 text-[10px] text-muted-foreground">closed {edge.valid_to}</span>}
               </li>
             )
           })}
