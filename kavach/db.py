@@ -152,6 +152,45 @@ def fetch_all(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
+# --- ingestion writes (one transaction each) ------------------------------------
+
+_DOC_COLS = ("doc_id", "path", "source", "doc_type", "signature_status", "iss", "text_hash", "ingested_at", "removed_at")
+
+
+def get_document_by_path(path: str) -> dict[str, Any] | None:
+    """The documents row for a vault-relative path, removed or not."""
+    return fetch_one("SELECT * FROM documents WHERE path = ?", (path,))
+
+
+def _close_document_knowledge(conn: sqlite3.Connection, doc_id: str, closed_on: str) -> None:
+    """Close (never delete) the doc's current facts and the edges sourced from its chunks."""
+    conn.execute("UPDATE edges SET valid_to = ? WHERE valid_to IS NULL AND source_chunk_id IN "
+                 "(SELECT chunk_id FROM chunks WHERE doc_id = ?)", (closed_on, doc_id))
+    conn.execute("UPDATE facts SET valid_to = ? WHERE doc_id = ? AND valid_to IS NULL AND superseded_by IS NULL",
+                 (closed_on, doc_id))
+
+
+def store_document(doc: dict[str, Any], chunks: list[dict[str, Any]], closed_on: str) -> None:
+    """Upsert one documents row and replace all its chunks; knowledge from the old chunks is closed on `closed_on`."""
+    row = {c: doc.get(c) for c in _DOC_COLS}
+    updates = ", ".join(f"{c} = excluded.{c}" for c in _DOC_COLS[1:])
+    with connect() as conn:
+        _close_document_knowledge(conn, row["doc_id"], closed_on)
+        conn.execute("DELETE FROM chunks WHERE doc_id = ?", (row["doc_id"],))
+        conn.execute(f"INSERT INTO documents ({', '.join(_DOC_COLS)}) VALUES ({', '.join('?' * len(_DOC_COLS))}) "
+                     f"ON CONFLICT(doc_id) DO UPDATE SET {updates}", tuple(row.values()))
+        conn.executemany("INSERT INTO chunks (chunk_id, doc_id, locator, text, embedding) VALUES (?, ?, ?, ?, ?)",
+                         [(c["chunk_id"], row["doc_id"], c["locator"], c["text"], c.get("embedding")) for c in chunks])
+
+
+def remove_document(doc_id: str, removed_at: str, closed_on: str) -> None:
+    """Mark a document removed, close its knowledge and drop its chunks."""
+    with connect() as conn:
+        _close_document_knowledge(conn, doc_id, closed_on)
+        conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+        conn.execute("UPDATE documents SET removed_at = ? WHERE doc_id = ?", (removed_at, doc_id))
+
+
 # --- typed readers used by the API --------------------------------------------
 
 

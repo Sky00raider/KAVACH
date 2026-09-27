@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from kavach.agent import executor, planner
-from kavach.brain import chat, decide, embed, ingest, memory, parse_question, watcher
+from kavach.brain import chat, decide, embed, memory, parse_question, watcher
 from kavach.models import (
     AskAck,
     AskIn,
@@ -13,7 +13,6 @@ from kavach.models import (
     ChatResult,
     Claim,
     CredentialRef,
-    IngestResult,
     LedgerCheck,
     Plan,
     Presentation,
@@ -28,8 +27,6 @@ from kavach.trust import audit, consent, crypto, issuer_check, ledger, present, 
 
 
 def test_brain_stubs_return_contract_types():
-    assert isinstance(ingest.ingest_file(Path("vault/pdfs/x.pdf")), IngestResult)
-    assert ingest.remove_file(Path("vault/pdfs/x.pdf")) is None
     assert embed.search("rent", k=3)[0].score > 0
     assert isinstance(chat.answer("rent?", []), ChatResult)
     assert isinstance(memory.teach("My salary went up"), TeachResult)
