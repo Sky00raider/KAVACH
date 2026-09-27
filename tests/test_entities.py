@@ -368,6 +368,14 @@ def test_find_by_name_in_the_question(named):
     assert E.find_in_question("Is Edward home?") == []      # "ed" is too short and not a whole word anyway
 
 
+def test_find_a_person_by_first_name(named):
+    kumar, _ = E.upsert("PERSON", "Suresh Kumar")
+    topic, _ = E.upsert("CONCEPT", "Suresh market")  # only a PERSON matches by first word
+    assert E.find_in_question("Did Suresh reply?") == [kumar]
+    assert E.find_in_question("Is Suresh Kumar coming, and is Ravi?") == [kumar, named.ids["Ravi"]]
+    assert topic not in E.find_in_question("suresh")
+
+
 def test_find_by_embedding_adds_close_names(named):
     ids = named.ids
     named.qvec = _unit(0.2, 1, 0.9)  # close to flat move (0.73) and rent renewal (0.66), not Ravi
@@ -522,9 +530,10 @@ def test_real_landlord_is_ravi(real_vault):
     for name in ("landlord.md", "flat_move_2026.md"):
         shutil.copy(DEMO / "notes" / name, real_vault / "notes" / name)
         ingest.ingest_file(real_vault / "notes" / name)
-    ravi = _by_name("Ravi")
+    ravi = _by_name("Ravi Kumar")  # landlord.md: "The landlord is Ravi Kumar."
     assert ravi["type"] == "PERSON"
-    assert E.find_in_question("What do I need to confirm with Ravi?")[0] == ravi["entity_id"]
+    first = E.find_in_question("What do I need to confirm with Ravi?")[0]  # "Ravi" (flat_move_2026.md) or Ravi Kumar
+    assert "ravi" in db.fetch_one("SELECT norm_name FROM entities WHERE entity_id = ?", (first,))["norm_name"]
 
 
 @pytest.mark.llm
@@ -534,7 +543,7 @@ def test_real_drop_to_ingested_time_for_a_one_chunk_note(real_vault):
     E.extract("warm-up: Ravi is my landlord.")  # FAST_MODEL resident, as it is on the demo laptop
     llm.embed([config.EMBED_DOC_PREFIX + "warm-up"])
     path = real_vault / "notes" / "inbox_note.md"
-    shutil.copy(DEMO / "inbox_note.md", path)
+    shutil.copy(DEMO / "notes" / "inbox_note.md", path)
     start = time.perf_counter()
     res = ingest.ingest_file(path)
     seconds = time.perf_counter() - start

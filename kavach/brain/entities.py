@@ -432,15 +432,21 @@ def warm() -> None:
 
 
 def find_in_question(question: str) -> list[str]:
-    """Entity ids the question names: normalised names written in the question first (longest first), then up to
-    MATCH_MAX more whose name embedding has cosine >= MATCH_MIN_COSINE with the question (best first)."""
+    """Entity ids the question names: normalised names written in the question first (longest first; a PERSON also
+    by first name, "Ravi" for Ravi Kumar), then up to MATCH_MAX more whose name embedding has cosine >=
+    MATCH_MIN_COSINE with the question (best first)."""
     rows = _candidates()
     if not rows or not question.strip():
         return []
     flat = f" {_flat(question)} "
-    by_string = sorted((r for r in rows if len(r["norm_name"]) >= MIN_MATCH_CHARS and f" {r['norm_name']} " in flat),
-                       key=lambda r: -len(r["norm_name"]))
-    found = list(dict.fromkeys(r["entity_id"] for r in by_string))
+
+    def aliases(r: dict) -> list[str]:
+        norm = r["norm_name"]
+        return [norm, norm.split()[0]] if r["type"] == "PERSON" and " " in norm else [norm]
+
+    by_string = sorted(((len(a), i, r["entity_id"]) for i, r in enumerate(rows) for a in aliases(r)
+                        if len(a) >= MIN_MATCH_CHARS and f" {a} " in flat), key=lambda m: (-m[0], m[1]))
+    found = list(dict.fromkeys(eid for _, _, eid in by_string))
 
     qvec = embed.query_vector(question)
     if qvec is not None:
