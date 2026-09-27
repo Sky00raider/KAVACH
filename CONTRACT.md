@@ -72,7 +72,7 @@ kavach/                         repo root
 
 ## 3. Config (`kavach/config.py`, env-overridable)
 
-`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `OLLAMA_KEEP_ALIVE` (default `"24h"`), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
+`OLLAMA_URL`, `LLM_MODEL`, `FAST_MODEL`, `EMBED_MODEL`, `EMBED_DIM`, `OLLAMA_KEEP_ALIVE` (default `"24h"`), `NUM_CTX=8192` (Ollama `options.num_ctx` on chat and structured calls), `DB_PATH`, `VAULT_DIR`, `OUTBOX_DIR`, `KEYS_DIR`, `OWNER_TOKEN` (random per install, stored in `keys/owner_token`), `API_PORT`, `GATE_PORT`, `REQUESTER_PORT`, `OWNER_URL` (requester side), `CHUNK_SIZE=600`, `CHUNK_OVERLAP=100`, `WATCH_DEBOUNCE_S=2`, `LEDGER_MIN_WIDTH={"income":25000,"percentage":15}`, `LEDGER_MAX_ATTESTED_PER_30D=3`, `WALLET_LOW_COPIES=3`.
 
 ## 4. Knowledge model
 

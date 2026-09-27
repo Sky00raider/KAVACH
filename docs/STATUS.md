@@ -52,10 +52,9 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 ## BRAIN (§6.2)
 
 **Done**
-- (none)
+- 1. `brain/llm.py`: `chat`, `chat_stream` (NDJSON, 120 s per-chunk read timeout), `structured` (retry once with the validation error appended, then `LLMError`), `embed` (one batched `/api/embed`, float32 `(n, EMBED_DIM)`, no call for empty input); every failure is `LLMError`; `keep_alive` on every call, `temperature 0` + `num_ctx=config.NUM_CTX` on chat/structured. `tests/test_llm.py`: mock-transport tests + llm tests incl. a ~5k-token recall test (fails without `num_ctx`: Ollama's default context truncated it to ~2k tokens)
 
 **Next**
-1. `brain/llm.py` (Ollama chat, structured output, embeddings, streaming; `keep_alive` from config)
 2. `ingest.py` for PDFs + notes, `watcher.py`
 3. `embed.py` hybrid search
 4. `chat.py` sync + stream with citation check

@@ -38,6 +38,7 @@ One line per decision: date, decision, why. Newest at the bottom of the table. S
 | 2026-09-27 | Requester-mode status shows the owner connection: `owner_url` from `/r/identity` plus a browser no-cors probe of `{owner_url}/api/claims` | `/r/identity` has no reachability field; the probe needs no contract change (proposed `owner_reachable` field left to TRUST) |
 | 2026-09-27 | Fixture mode loads `fixtures/api` lazily behind a build-time `VITE_USE_FIXTURES` check; normal builds contain no fixture data. §10 stream payload types are derived in `client.ts` from generated `Citation`/`ChatResult` | Demo data never ships in `dist`; SSE bodies are not in OpenAPI |
 | 2026-09-27 | Owner routes and `index.html` token injection require a loopback `Host` header (`localhost`, `127.0.0.1`, `[::1]`, optional port) on top of the loopback client address (CONTRACT §9) | DNS rebinding: a malicious page resolved to 127.0.0.1 connects from loopback but sends its own Host, so the peer-address check alone would hand it the owner token |
+| 2026-09-27 | `config.NUM_CTX=8192` (CONTRACT §3) sent as `options.num_ctx` on chat, stream and structured calls (so `bench_models.py` also sends it); streaming read timeout 120 s per chunk, other calls 300 s; `structured` retries once with the validation error appended | Ollama's default context silently truncated a ~5k-token prompt to ~2k tokens and the model answered from the tail; chat with 8 retrieved chunks plus history needs the room |
 
 ## Appendix A: model benchmark, 26 Sep 2026
 
