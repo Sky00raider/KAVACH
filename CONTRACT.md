@@ -343,6 +343,13 @@ event: error       data: {"message":"..."}
 ```
 `citation_ok=false` when any `[n]` is not a supplied chunk or the answer has no citation.
 
+`flags` values (any combination, in this order):
+- `no_context`: search found no chunks; the model is not called and the answer is "I don't have that in your vault."
+- `not_in_vault`: the answer says "don't have that" (case, apostrophes and punctuation ignored), in whole or for part of the question.
+- `no_citation`: no `[n]` in an answer that is not `not_in_vault`.
+- `invalid_citation`: some `[n]` is not a supplied chunk.
+- `uncited_sentence`: some sentence other than a "don't have that" one has no `[n]`; informational, `citation_ok` unchanged.
+
 ## 11. MCP
 
 ### 11.1 Inbound `kavach-gate` (`gate_mcp.py`, streamable HTTP :8001 `/mcp`)
