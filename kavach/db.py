@@ -191,6 +191,33 @@ def remove_document(doc_id: str, removed_at: str, closed_on: str) -> None:
         conn.execute("UPDATE documents SET removed_at = ? WHERE doc_id = ?", (removed_at, doc_id))
 
 
+# --- search index (brain/embed.py) ----------------------------------------------
+
+
+def search_chunks() -> list[dict[str, Any]]:
+    """Every chunk with its embedding BLOB (or None), in insertion order."""
+    return fetch_all("SELECT chunk_id, doc_id, locator, text, embedding FROM chunks ORDER BY rowid")
+
+
+def chunks_signature() -> tuple:
+    """Cheap fingerprint of the chunks table; changes when chunks are added, removed or (re)embedded."""
+    row = fetch_one("SELECT COUNT(*) AS n, COALESCE(MAX(rowid), 0) AS last, COALESCE(SUM(length(text)), 0) AS chars, "
+                    "COALESCE(SUM(length(embedding)), 0) AS vec_bytes FROM chunks")
+    return (str(db_path()), row["n"], row["last"], row["chars"], row["vec_bytes"])
+
+
+def chunks_missing_embeddings(nbytes: int) -> list[dict[str, Any]]:
+    """chunk_id and text of chunks with no embedding or one of the wrong size (`nbytes`)."""
+    return fetch_all("SELECT chunk_id, text FROM chunks WHERE embedding IS NULL OR length(embedding) != ? "
+                     "ORDER BY rowid", (nbytes,))
+
+
+def set_chunk_embeddings(pairs: list[tuple[str, bytes]]) -> None:
+    """Store `(chunk_id, blob)` embeddings; ids of chunks deleted meanwhile are ignored."""
+    with connect() as conn:
+        conn.executemany("UPDATE chunks SET embedding = ? WHERE chunk_id = ?", [(b, cid) for cid, b in pairs])
+
+
 # --- typed readers used by the API --------------------------------------------
 
 

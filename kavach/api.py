@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import threading
 from collections.abc import Iterable, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -23,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 from kavach import config, db
 from kavach.agent import executor, planner
-from kavach.brain import chat, decide, ingest, memory, watcher
+from kavach.brain import chat, decide, embed, ingest, memory, watcher
 from kavach.db import new_id, utc_now
 from kavach.models import (
     AskAck,
@@ -125,12 +126,17 @@ async def lifespan(app: FastAPI):
     db.init_db()
     for sub in VAULT_SUBDIRS.values():
         (config.VAULT_DIR / sub).mkdir(parents=True, exist_ok=True)
-    observer = watcher.start(config.VAULT_DIR)
+    observer = None
+    if config.KAVACH_WATCH:
+        observer = watcher.start(config.VAULT_DIR)
+        # build the search index (and backfill missing vectors) off the event loop, so startup doesn't wait
+        threading.Thread(target=embed.warm, name="kavach-index-warm", daemon=True).start()
     try:
         yield
     finally:
-        observer.stop()
-        observer.join(timeout=2)
+        if observer is not None:
+            observer.stop()
+            observer.join(timeout=2)
 
 
 app = FastAPI(title="KAVACH owner API", lifespan=lifespan)

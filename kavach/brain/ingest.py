@@ -12,10 +12,8 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
-import numpy as np
-
 from kavach import config, db, textnorm
-from kavach.brain import llm
+from kavach.brain import embed
 from kavach.db import new_id, utc_now
 from kavach.models import DocSource, IngestResult, SignatureResult
 from kavach.trust import audit, issuer_check
@@ -23,7 +21,6 @@ from kavach.trust import audit, issuer_check
 log = logging.getLogger(__name__)
 
 SOURCES: dict[str, DocSource] = {".pdf": "pdf", ".md": "note", ".txt": "chat"}
-_EMBED_BATCH = 64
 
 # [[Target]], [[Target|alias]], [[Target#heading]]; the target is what step 6 turns into MENTIONED_IN edges
 _LINK = re.compile(r"\[\[([^\[\]|#]+)(?:#[^\[\]|]*)?(?:\|[^\[\]]*)?\]\]")
@@ -121,20 +118,6 @@ def _read(path: Path, source: DocSource) -> tuple[list[tuple[str, str]], str]:
     return [(f"{label}: {path.name}", clean_text(raw))], textnorm.text_hash(raw)
 
 
-def _embed(texts: list[str]) -> list[bytes | None]:
-    """float32 BLOBs in batches, each text as `EMBED_DOC_PREFIX + text` (search embeds queries with
-    `EMBED_QUERY_PREFIX`). If Ollama is unavailable the chunks are stored without vectors (backfilled later)."""
-    docs = [config.EMBED_DOC_PREFIX + t for t in texts]
-    try:
-        parts = [llm.embed(docs[i:i + _EMBED_BATCH]) for i in range(0, len(docs), _EMBED_BATCH)]
-    except llm.LLMError as exc:
-        log.warning("embedding failed, %d chunks stored without vectors: %s", len(texts), exc)
-        return [None] * len(texts)
-    if not parts:
-        return []
-    return [row.astype(np.float32).tobytes() for row in np.concatenate(parts)]
-
-
 # --- public (CONTRACT §7) ----------------------------------------------------------------------------
 
 
@@ -166,7 +149,7 @@ def ingest_file(path: Path) -> IngestResult:
 
     chunks = [{"chunk_id": new_id("c"), "locator": locator, "text": piece}
               for locator, text in sections for piece in chunk_text(text)]
-    for chunk, blob in zip(chunks, _embed([c["text"] for c in chunks])):
+    for chunk, blob in zip(chunks, embed.embed_documents([c["text"] for c in chunks])):
         chunk["embedding"] = blob
 
     opening = sections[0][1][: config.CHUNK_SIZE] if sections else ""
@@ -174,6 +157,7 @@ def ingest_file(path: Path) -> IngestResult:
                        "doc_type": _doc_type(source, path.name, opening), "signature_status": sig.status,
                        "iss": sig.iss, "text_hash": digest, "ingested_at": utc_now(), "removed_at": None},
                       chunks, closed_on=date.today().isoformat())
+    embed.invalidate()
 
     result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status,
                           chunks_added=len(chunks))
@@ -193,5 +177,6 @@ def remove_file(path: Path) -> None:
     if row is None or row["removed_at"] is not None:
         return None
     db.remove_document(row["doc_id"], utc_now(), closed_on=date.today().isoformat())
+    embed.invalidate()
     audit.log("document_removed", row["doc_id"], {"path": rel, "doc_id": row["doc_id"]})
     return None

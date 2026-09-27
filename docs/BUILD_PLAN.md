@@ -45,7 +45,7 @@ Interfaces live in `CONTRACT.md`. This file covers behaviour, order and dates.
 - Chunks ~600 chars, 100 overlap. Locators: `page 2`, `note: rent.md`, `chat: 2026-08-14 21:03`.
 
 ### 4.2 Search (BRAIN)
-Embeddings as float32 BLOBs, loaded into one NumPy matrix cached in memory (invalidated on ingest). Score = 0.7 cosine + 0.3 keyword (BM25-lite over tokens). Top-k 8.
+Embeddings as float32 BLOBs, loaded into one NumPy matrix cached in memory (invalidated on ingest, and rebuilt when the chunks table changes underneath). Score = 0.7 cosine + 0.3 keyword (BM25-lite over tokens), **each min-max normalised over the vault** (a component with all-equal values counts as 0); scores are relative to the query, not absolute. Keyword tokens pass through `brain/amounts.py` first, so `15k`, `₹15,000` and `15000` match. Top-k 8. Missing vectors are backfilled in a background thread (embed, write, then swap the index; searches meanwhile use the old one; a failure waits 60 s before retrying). Without a query vector (Ollama down) search is keyword-only. The API warms the index at startup.
 nomic task prefixes: ingest embeds every chunk as `config.EMBED_DOC_PREFIX + text` (done in step 2); step 3 search must embed every query as `config.EMBED_QUERY_PREFIX + query`. Chunk text is stored without the prefix.
 
 ### 4.3 Entities and graph (BRAIN)
@@ -81,7 +81,7 @@ Per numeric field keep `[lo, hi)` implied by all answers to everyone. YES to `>=
 Hash chain per CONTRACT §8. `verify_chain()` walks the log and returns the first broken `seq`.
 
 ### 4.10 Question parsing (BRAIN)
-- `parse_question` normalises amounts **in code, before the LLM sees the question**. Every amount becomes a plain integer of rupees in the text passed to the model: `₹`, `Rs`, `Rs.`, `INR` dropped; commas dropped, Indian grouping included (`1,20,000`); `k` = ×1,000; `lakh` / `lac` / `L` = ×1,00,000 (`1.2 lakh` -> `120000`); `crore` / `cr` = ×1,00,00,000; `/month`, `per month`, `pm`, `a month` stripped. Examples: `₹50k` -> `50000`, `50,000/month` -> `50000`, `1.2 lakh` -> `120000`.
+- `parse_question` normalises amounts **in code, before the LLM sees the question**, reusing `kavach/brain/amounts.py` (`normalize_amounts`, `parse_amount`; built in step 3 for search tokens), which already covers the currency, grouping, multiplier and range rules below; step 8 adds the per-period and percentage stripping. Every amount becomes a plain integer of rupees in the text passed to the model: `₹`, `Rs`, `Rs.`, `INR` dropped; commas dropped, Indian grouping included (`1,20,000`); `k` = ×1,000; `lakh` / `lac` / `L` = ×1,00,000 (`1.2 lakh` -> `120000`); `crore` / `cr` = ×1,00,00,000; `/month`, `per month`, `pm`, `a month` stripped. Examples: `₹50k` -> `50000`, `50,000/month` -> `50000`, `1.2 lakh` -> `120000`.
 - Percentages the same way (`75 %`, `75 percent` -> `75`).
 - Unit tests in `tests/test_parse_question.py` cover every form above, plus text with no amount (unchanged) and ambiguous input (e.g. `50-60k`, left unchanged).
 - After the LLM: numeric claims (`income`, `percentage`, `age`) must carry an `int` value, else `unsupported`. `issuer_claim` is set in code from the §5.1 table, never by the model.

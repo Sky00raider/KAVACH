@@ -6,7 +6,7 @@ import pymupdf
 import pytest
 
 from kavach import config, textnorm
-from kavach.brain import ingest, llm
+from kavach.brain import embed, ingest, llm
 from kavach.models import SignatureResult
 from kavach.trust import audit, issuer_check
 
@@ -231,7 +231,7 @@ def test_ollama_down_stores_chunks_without_vectors(vault, fresh_db, monkeypatch)
 
 
 def test_embedding_is_batched(vault, monkeypatch):
-    monkeypatch.setattr(ingest, "_EMBED_BATCH", 3)
+    monkeypatch.setattr(embed, "_EMBED_BATCH", 3)
     note = vault.root / "notes" / "a.md"
     note.write_text(_prose(400), encoding="utf-8")
     res = ingest.ingest_file(note)

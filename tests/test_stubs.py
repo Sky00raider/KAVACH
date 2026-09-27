@@ -26,8 +26,8 @@ from kavach.models import (
 from kavach.trust import audit, consent, crypto, issuer_check, ledger, present, wallet
 
 
-def test_brain_stubs_return_contract_types():
-    assert embed.search("rent", k=3)[0].score > 0
+def test_brain_stubs_return_contract_types(fresh_db):
+    assert embed.search("rent", k=3) == []  # real search (step 3): empty vault
     assert isinstance(chat.answer("rent?", []), ChatResult)
     assert isinstance(memory.teach("My salary went up"), TeachResult)
     assert memory.timeline("monthly_income")[-1].current
