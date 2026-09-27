@@ -56,6 +56,24 @@ def test_reset_then_restore(runtime):
     assert config.DB_PATH.exists()
 
 
+def test_run_eval_attacks_and_disclosure_set(runtime, monkeypatch):
+    run_eval = _load("run_eval")
+    monkeypatch.setattr(run_eval, "EVAL_DIR", runtime / "eval")
+    (runtime / "eval").mkdir()
+    rows = [{"id": "b1", "question": "Earns 50k?", "expect": "ISSUER_PROOF", "expect_result": True, "real": False},
+            {"id": "b2", "question": "Account number?", "expect": "REFUSED", "real": True}]
+    (runtime / "eval" / "set_b.jsonl").write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    db.init_db()
+    out = runtime / "results.json"
+    assert run_eval.main(["--sets", "B,C,D", "--out", str(out)]) == 0
+    report = json.loads(out.read_text(encoding="utf-8"))
+    c = report["sets"]["C"]
+    assert c["n"] == c["blocked"] == 6 and c["audit_chain_intact"]
+    assert report["sets"]["B"]["n"] == 2 and "wrong_disclosures" in report["sets"]["B"]
+    assert "D" not in report["sets"]  # no input file
+    assert config.DB_PATH == runtime / "kavach.db"  # runtime restored after the throwaway runs
+
+
 def test_bench_script_imports():
     bench = _load("bench_models")
     assert bench.TARGETS["first_token_s"] == 5.0
