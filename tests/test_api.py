@@ -275,6 +275,25 @@ def test_chat_stream_emits_contract_events(client):
     assert "".join(d["text"] for e, d in events if e == "token") == final.answer
 
 
+def test_local_model_failure_is_503(client, monkeypatch):
+    from kavach.brain.llm import LLMError
+
+    def down(question, history):
+        raise LLMError("Ollama /api/chat failed: ConnectError")
+
+    monkeypatch.setattr(api.chat, "answer", down)
+    r = client.post("/api/chat", headers=TOKEN, json={"question": "rent?"})
+    assert r.status_code == 503 and r.json()["detail"].startswith("local model unavailable")
+
+
+def test_chat_stream_events_are_in_openapi(client):
+    spec = client.get("/openapi.json").json()
+    content = spec["paths"]["/api/chat/stream"]["post"]["responses"]["200"]["content"]
+    assert list(content) == ["text/event-stream"]
+    refs = {v["$ref"].rsplit("/", 1)[1] for v in content["text/event-stream"]["schema"]["oneOf"]}
+    assert refs == {"ChatMetaEvent", "ChatTokenEvent", "ChatFinalEvent", "ChatDoneEvent", "ChatErrorEvent"}
+
+
 def test_chat_stream_turns_exceptions_into_error_event(client, monkeypatch):
     def boom(question, history):
         yield from ()

@@ -11,10 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Identity
-         * @description Stub: TRUST step 3 creates the keypair in DATA_DIR on first run and derives the fingerprint.
-         */
+        /** Identity */
         get: operations["identity_r_identity_get"];
         put?: never;
         post?: never;
@@ -33,10 +30,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Ask
-         * @description Stub: TRUST step 3 creates a nonce, signs, calls the owner's /api/ask and records the request.
-         */
+        /** Ask */
         post: operations["ask_r_ask_post"];
         delete?: never;
         options?: never;
@@ -53,7 +47,7 @@ export interface paths {
         };
         /**
          * Requests
-         * @description Stored requests, web and agent. TRUST step 3 polls the owner and verifies on arrival.
+         * @description Stored requests, web and agent, newest first. Polls the owner for open ones and verifies on arrival.
          */
         get: operations["requests_r_requests_get"];
         put?: never;

@@ -95,13 +95,14 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 
 - 11b. `scripts/run_eval.py`: set C runs the 6 attacks in a throwaway runtime (measured 27 Sep: 6/6 blocked, chain intact, ~3 s); sets A/B/D/E read `eval/set_x.jsonl` (formats in the docstring) against a temp copy of `kavach.db`, report real vs synthetic, wrong-disclosure count and median latency; exit code 1 if any attack gets through
 
+- 13. `/api/chat/stream` documents the `ChatEvent` union under `text/event-stream` in OpenAPI; `gen:types` now emits `ChatMetaData`, `ChatDoneData`, `ChatFinal`, `ChunkRef`, and `client.ts` uses them instead of deriving the stream types
+- 14. `api.py` maps `brain.llm.LLMError` to `503 {"detail": "local model unavailable: ..."}` on every route (chat, memory, tasks)
+
 **Next**
-12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe; CONTRACT §12 change via CONTRACT owner
-13. (low priority) Document the §10 stream in OpenAPI (`responses=` on `/api/chat/stream` with the `ChatEvent` models) so `gen:types` covers it; then drop the derived stream types in `client.ts`
-14. (low priority) `api.py`: map `brain.llm.LLMError` to `503` on `/api/chat` (today it surfaces as `500`; the stream already sends an `error` event)
+12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe
 
 **Blocked**
-- (none)
+- 12 waits on the CONTRACT owner: proposed change to CONTRACT §12 `/r/identity` -> `{name, type, fingerprint, owner_url, owner_reachable: bool}` (requester backend GETs `{OWNER_URL}/api/claims` with a 2 s timeout); affects `models.RIdentity`, `fixtures/api/r_identity.json`, `requester-types.ts` and `shell/status.tsx` (CONTRACT-owned)
 
 ## DATA (§6.4)
 

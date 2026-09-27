@@ -21,12 +21,13 @@ import httpx
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from kavach import config, db
 from kavach.agent import executor, planner
 from kavach.brain import chat, decide, embed, ingest, memory, watcher
+from kavach.brain.llm import LLMError
 from kavach.db import new_id, utc_now
 from kavach.models import (
     AskAck,
@@ -144,6 +145,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="KAVACH owner API", lifespan=lifespan)
 _FP = re.compile(r"^[0-9a-f]{16}$")
+
+
+@app.exception_handler(LLMError)
+async def local_model_unavailable(request: Request, exc: LLMError) -> JSONResponse:
+    """The local model is down or failed: a 503 the UI can explain, not an opaque 500."""
+    return JSONResponse({"detail": f"local model unavailable: {exc}"[:300]}, status_code=503)
 
 
 @app.exception_handler(RequestValidationError)
@@ -300,7 +307,10 @@ def sse(events: Iterable[ChatEvent]) -> Iterator[str]:
         yield f"event: error\ndata: {err.data.model_dump_json()}\n\n"
 
 
-@owner.post("/chat/stream", response_class=StreamingResponse)
+@owner.post("/chat/stream", response_class=StreamingResponse, responses={200: {
+    "model": ChatEvent,
+    "description": "text/event-stream of CONTRACT §10 events; each `data:` line is the `data` of one of these",
+}})
 def chat_stream(body: ChatIn) -> StreamingResponse:
     return StreamingResponse(sse(chat.answer_stream(body.question, body.history)), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -452,6 +462,19 @@ def claims() -> ClaimsOut:
 
 app.include_router(owner)
 app.include_router(public)
+
+
+def _openapi() -> dict:
+    """FastAPI files the stream's `responses` model under application/json; it is served as text/event-stream."""
+    if app.openapi_schema is None:
+        schema = FastAPI.openapi(app)
+        content = schema["paths"]["/api/chat/stream"]["post"]["responses"]["200"]["content"]
+        content["text/event-stream"] = content.pop("application/json")
+        app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = _openapi
 
 
 # --- frontend --------------------------------------------------------------------------------------------

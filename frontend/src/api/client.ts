@@ -44,11 +44,11 @@ export type RRequest = R["RRequest"]
 export type RStorage = R["RStorage"]
 export type VerifierOutput = R["VerifierOutput"]
 
-// §10 stream payloads. SSE bodies are not in the OpenAPI schema, so they are derived from generated types.
-export type ChunkRef = Omit<Citation, "quote">
-export type ChatMeta = { entities_used: string[]; chunks: ChunkRef[] }
-export type ChatFinal = Omit<ChatResult, "entities_used">
-export type ChatDone = { latency_ms: number; first_token_ms: number }
+// §10 stream payloads, documented on /api/chat/stream in the OpenAPI schema.
+export type ChunkRef = S["ChunkRef"]
+export type ChatMeta = S["ChatMetaData"]
+export type ChatFinal = S["ChatFinal"]
+export type ChatDone = S["ChatDoneData"]
 
 export class ApiError extends Error {
   readonly status: number

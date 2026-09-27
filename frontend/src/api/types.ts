@@ -546,12 +546,83 @@ export interface components {
             /** Stored */
             stored: components["schemas"]["Fact"] | components["schemas"]["Entity"] | null;
         };
+        /** ChatDoneData */
+        ChatDoneData: {
+            /** Latency Ms */
+            latency_ms: number;
+            /** First Token Ms */
+            first_token_ms: number;
+        };
+        /** ChatDoneEvent */
+        ChatDoneEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "done";
+            data: components["schemas"]["ChatDoneData"];
+        };
+        /** ChatErrorData */
+        ChatErrorData: {
+            /** Message */
+            message: string;
+        };
+        /** ChatErrorEvent */
+        ChatErrorEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "error";
+            data: components["schemas"]["ChatErrorData"];
+        };
+        /**
+         * ChatFinal
+         * @description Data of the §10 `final` event.
+         */
+        ChatFinal: {
+            /** Answer */
+            answer: string;
+            /** Citations */
+            citations: components["schemas"]["Citation"][];
+            /** Citation Ok */
+            citation_ok: boolean;
+            /** Flags */
+            flags?: string[];
+            /** Memory Candidates */
+            memory_candidates?: components["schemas"]["MemoryCandidate"][];
+        };
+        /** ChatFinalEvent */
+        ChatFinalEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "final";
+            data: components["schemas"]["ChatFinal"];
+        };
         /** ChatIn */
         ChatIn: {
             /** Question */
             question: string;
             /** History */
             history?: components["schemas"]["ChatTurn"][];
+        };
+        /** ChatMetaData */
+        ChatMetaData: {
+            /** Entities Used */
+            entities_used: string[];
+            /** Chunks */
+            chunks: components["schemas"]["ChunkRef"][];
+        };
+        /** ChatMetaEvent */
+        ChatMetaEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "meta";
+            data: components["schemas"]["ChatMetaData"];
         };
         /**
          * ChatResult
@@ -570,6 +641,20 @@ export interface components {
             memory_candidates?: components["schemas"]["MemoryCandidate"][];
             /** Entities Used */
             entities_used?: string[];
+        };
+        /** ChatTokenData */
+        ChatTokenData: {
+            /** Text */
+            text: string;
+        };
+        /** ChatTokenEvent */
+        ChatTokenEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "token";
+            data: components["schemas"]["ChatTokenData"];
         };
         /** ChatTurn */
         ChatTurn: {
@@ -594,6 +679,17 @@ export interface components {
             locator: string;
             /** Text */
             text: string;
+        };
+        /** ChunkRef */
+        ChunkRef: {
+            /** N */
+            n: number;
+            /** Chunk Id */
+            chunk_id: string;
+            /** Doc Id */
+            doc_id: string;
+            /** Locator */
+            locator: string;
         };
         /** Citation */
         Citation: {
@@ -1550,12 +1646,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description text/event-stream of CONTRACT §10 events; each `data:` line is the `data` of one of these */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/event-stream": components["schemas"]["ChatMetaEvent"] | components["schemas"]["ChatTokenEvent"] | components["schemas"]["ChatFinalEvent"] | components["schemas"]["ChatDoneEvent"] | components["schemas"]["ChatErrorEvent"];
+                };
             };
             /** @description Validation Error */
             422: {
