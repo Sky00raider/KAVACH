@@ -251,18 +251,20 @@ def resolve_date(step: XStep, instruction: str, today: date, facts: dict[str, di
     explicit = extract.explicit_dates(words)
     if explicit:
         return explicit[0][2].isoformat()
-    d_month = re.search(r"\b(?:on|by|in)\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b", words)
-    if d_month:  # "on 5 November" with no year: its next occurrence
+    # "on 5 November" / "5th of Nov" with no year: its next occurrence. The model's `date_text` is often the bare
+    # "5 November", so the preposition is optional; "3 days" is skipped because "days" is not a month.
+    for d_month in re.finditer(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]{3,9})\b", words):
         month = extract.resolve_valid_from(d_month.group(2), today)
-        if month:
-            m = date.fromisoformat(month)
-            for year in (today.year, today.year + 1):
-                try:
-                    cand = date(year, m.month, int(d_month.group(1)))
-                except ValueError:
-                    break
-                if cand > today:
-                    return cand.isoformat()
+        if not month:
+            continue
+        m = date.fromisoformat(month)
+        for year in (today.year, today.year + 1):
+            try:
+                cand = date(year, m.month, int(d_month.group(1)))
+            except ValueError:
+                break
+            if cand > today:
+                return cand.isoformat()
     for m in re.finditer(r"\b(?:in|by|on|before|until)\s+([A-Za-z]{3,9})\b", words):
         month = extract.resolve_valid_from(m.group(1), today)
         if month:
@@ -420,6 +422,8 @@ def plan(instruction: str) -> Plan:
         if reason:
             warnings.append(f"Left out {call.tool.replace('_', ' ')}: {reason}.")
             continue
+        if any(c.tool == call.tool and c.args == call.args for c in calls):
+            continue  # the model repeats a step (qwen2.5:3b: 2-3 identical reminders); approving it runs once
         calls.append(call)
     if not asked:
         warnings.append("Couldn't turn that into an action (email, reminder, rental form or note).")

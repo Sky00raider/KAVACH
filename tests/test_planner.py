@@ -116,6 +116,21 @@ def test_reminder_dates_from_the_owners_words(graph, monkeypatch, words, expecte
     assert p.calls[0].args.date == expected.isoformat()
 
 
+def test_bare_day_month_date_text(graph, monkeypatch):
+    """qwen2.5:3b sends the owner's "5 November" as date_text without "on"; it resolved to nothing and the plan
+    warned "Couldn't tell when" next to a reminder it had dated from a junk duplicate step (live gate check)."""
+    d = TODAY + timedelta(days=40)
+    for date_text in (f"{d.day} {d:%B}", f"{d.day}th of {d:%b}"):
+        instruction = f"Remind me to pay rent on {date_text}"
+        p = _plan(monkeypatch, instruction, XStep(tool="create_reminder", title="Pay rent", date_text=date_text))
+        assert [c.args.date for c in p.calls] == [d.isoformat()] and p.warnings == [], date_text
+    # the model repeating the step (2-3 times on real runs) still plans one reminder
+    twice = XStep(tool="create_reminder", title="Pay rent", date_text=f"{d.day} {d:%B}")
+    assert len(_plan(monkeypatch, f"Remind me to pay rent on {d.day} {d:%B}", twice, twice, twice).calls) == 1
+    step = XStep(tool="create_reminder", title="Pay rent", date_text=f"3 days after {d.day} {d:%B}")
+    assert planner.resolve_date(step, f"Remind me 3 days after {d.day} {d:%B}", TODAY, {}) == d.isoformat()
+
+
 def test_a_date_fact_is_used_only_when_the_instruction_talks_about_it(graph, monkeypatch):
     # a real run counted "next week" back from the agreement's end
     p = _plan(monkeypatch, "Remind me to pay the security deposit next week",
