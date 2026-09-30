@@ -193,12 +193,13 @@ Issuers sign the `pdf_text_hash` of the **generated PDF**: render the PDF, extra
 The signature is stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `SignatureResult {status, iss, detail}` where `status` is `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered), `iss` is the claimed issuer or null, `detail` a short reason or null.
 
 ### 6.6 Holder check (`brain/identity.py`)
-A signature proves who issued a document, not whose it is. The **identity anchor** is the owner's name and date of birth:
+A signature proves who issued a document, not whose it is. The **identity anchor** is the owner's name and date of birth, from the first source in this order:
+- `aadhaar_okyc`: the owner imports their UIDAI Aadhaar Paperless Offline e-KYC ZIP and share code (`POST /api/identity/aadhaar`). `aadhaar.verify_okyc` opens the ZIP in memory, verifies the enveloped XML signature against a UIDAI certificate bundled in `kavach/trust/certs/` whose validity covers the file's `referenceId` timestamp, and returns only name, date of birth, the Aadhaar number's last 4 digits (from `referenceId`) and the generation time. RSA-SHA1 is accepted on this verification path only (UIDAI signs with it), never elsewhere. Only `name`, `dob`, `last4`, `issuer` (`uidai`) and `verified_at` are stored; the photo, address, contact hashes, XML, ZIP and share code are never stored, logged or returned. While in force, no ID card re-anchors. A new import replaces it.
 - `signed_id`: read in code (`Name:` / `Date of birth:`) from the first `issuer_signed` `id_card` of an identity issuer (`mock_govt`) ingested while no anchor exists. Pinned: a later ID card in another name is holder-checked like any document and never re-anchors. When the anchor's document is removed, the next live identity-issuer ID card whose `holder_status` is `verified` takes over, else `config`.
 - `config`: no signed ID: `config.OWNER_NAME`, no date of birth; the identity is `not_verified`.
 
 `documents.holder_status` is set only for `issuer_signed` documents (null otherwise), against the current anchor:
-- `verified`: the anchor name appears, and a date of birth the document states (after a date-of-birth label) equals the anchor's (not checked when the anchor has none). The name matches when every word of the normalised name (NFKC, casefold, letters only) is a whole word within the first *n* + 2 words (*n* = words in the name, any order) after a holder label (`Account holder:`, `Candidate:`, `Name:`...); anywhere in the text when the document has no holder label.
+- `verified`: the anchor name appears, and a date of birth the document states (after a date-of-birth label) equals the anchor's (not checked when the anchor has none; only the year when the anchor has only a year of birth, as some Aadhaar records do). The name matches when every word of the normalised name (NFKC, casefold, letters only) is a whole word within the first *n* + 2 words (*n* = words in the name, any order) after a holder label (`Account holder:`, `Candidate:`, `Name:`...); anywhere in the text when the document has no holder label.
 - `mismatch`: the name is not there, or the date of birth differs.
 - `unknown`: a date-of-birth label whose date cannot be read.
 
@@ -225,10 +226,12 @@ decide.claims() -> ClaimsOut                         # §5.1 names + issuer-prov
 planner.plan(instruction: str) -> Plan                # validated, never executes
 identity.current() -> Identity                        # the §6.6 anchor, masked
 identity.holder_status(text: str, doc_type: str | None) -> HolderStatus   # against the current anchor
+identity.import_aadhaar(zip_bytes: bytes, share_code: str) -> Identity    # verify, store, audit, recheck; raises AadhaarError
 
 # trust (TRUST)
 crypto.canonical(obj) -> bytes; crypto.sign(priv, obj) -> str; crypto.verify(pub, obj, sig) -> bool
 issuer_check.verify_pdf(path: Path) -> SignatureResult
+aadhaar.verify_okyc(zip_bytes: bytes, share_code: str) -> AadhaarIdentity   # §6.6, offline; raises AadhaarError(reason)
 wallet.find_copy(issuer_claim: str) -> CredentialRef | None   # unused copy containing the claim
 wallet.disclosed_value(ref: CredentialRef, issuer_claim: str) -> ClaimValue   # the value the issuer signed for it in that copy (decide's ISSUER_PROOF result)
 wallet.status() -> WalletStatus
@@ -264,7 +267,9 @@ Shapes used above that are not defined elsewhere in this contract:
 | `Task` | `task_id, instruction, plan: Plan, status, result: [ToolResult]\|null, created_at, decided_at` |
 | `Document` | the `documents` row (§8); `path` is vault-relative |
 | `HolderStatus` | `"verified"\|"mismatch"\|"unknown"` (§6.6); `holder_status` fields are this or null (not `issuer_signed`) |
-| `Identity` | `status ("verified"\|"not_verified"), source ("signed_id"\|"config"), issuer: str\|null, name_initials, birth_year: int\|null, doc_id: str\|null, verified_at: str\|null`; never the full name, date of birth or ID number |
+| `AadhaarIdentity` | `name, dob: str\|null` (`YYYY-MM-DD`, or `YYYY` when the record has only a year)`, last4, generated_at` (UTC ISO from `referenceId`); nothing else from the XML |
+| `AadhaarError` | exception with `reason`: `not_a_zip` \| `wrong_share_code` \| `no_xml` \| `too_large` \| `malformed` \| `bad_signature` |
+| `Identity` | `status ("verified"\|"not_verified"), source ("aadhaar_okyc"\|"signed_id"\|"config"), issuer: str\|null, name_initials, birth_year: int\|null, doc_id: str\|null, verified_at: str\|null`; never the full name, date of birth or ID number |
 | `Entity` | `entity_id, type, name, attrs: {str: str}` |
 
 ## 8. SQLite schema
@@ -297,7 +302,7 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 ```
 - `documents.path`: relative to `VAULT_DIR`, forward slashes (`pdfs/rent_agreement.pdf`), same as `/api/ingest` and the `ingested` audit detail
 - `documents.holder_status`: `verified` | `mismatch` | `unknown` | NULL (§6.6); `init_db` adds the column to an older database
-- `identity`: one row per anchor ever set (§6.6), id prefix `id`; the live anchor is the newest row with `removed_at` NULL. `source`: `signed_id`; `last4` is reserved (null). Owner-only; never returned unmasked by any route
+- `identity`: one row per anchor ever set (§6.6), id prefix `id`; the live anchor is the newest row with `removed_at` NULL. `source`: `aadhaar_okyc` \| `signed_id`; `last4` is set only for `aadhaar_okyc` and is never returned by any route. Owner-only; never returned unmasked by any route
 - `memory_candidates.kind`: `fact` | `decision`; `status`: `pending` | `accepted` | `discarded`
 - `requesters.status`: `pending` | `paired` | `blocked`
 - `requests.status`: `pending_pairing` | `pending` | `done`; `channel`: `web` | `mcp`
@@ -321,6 +326,7 @@ Owner routes and token injection also require the `Host` header to be `localhost
 | GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, holder_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
 | GET | `/api/documents` | | `[Document]` |
 | GET | `/api/identity` | | `Identity` (§6.6, §7): the anchor, masked |
+| POST | `/api/identity/aadhaar` | multipart `file` (the offline e-KYC `.zip`, at most 5 MB) + form field `share_code` | `Identity` of the new anchor. `400 {"detail": reason}` for `not_a_zip`, `wrong_share_code`, `no_xml`, `too_large`, `malformed`; `422 {"detail": "bad_signature"}`. Nothing from the file is written to disk; the detail never echoes file content |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
 | GET | `/api/facts` | `?field=&current=true` (`current` defaults to `true`; `false` includes superseded facts) | `[Fact]` |
 | GET | `/api/graph` | `?entity_id=&hops=1` | `{nodes:[{id,type,name}], edges:[{id,src,dst,rel,valid_from,valid_to,source_chunk_id,doc_id}]}`; `doc_id` is the document of `source_chunk_id`, `null` when that chunk no longer exists (an edge closed by a changed or removed document) |
@@ -418,13 +424,15 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 13. Audit events
 
-`ingested`, `document_signature_failed`, `document_removed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`.
+`ingested`, `document_signature_failed`, `document_removed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`, `identity_verified`, `identity_verify_failed`.
 
 `request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester`, `malformed` (`models.RejectReason`). `malformed` is a request to `/api/ask*` that fails validation (bad body, missing or non-integer `X-*` headers); it still returns `422`, and its `detail` is exactly `{reason, route, client_ip, error_type}`, never the body.
 
 `document_signature_failed`: logged at ingest when `issuer_check.verify_pdf()` returns `invalid`. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, iss, reason}` with `path` vault-relative, `iss` the claimed issuer or null, `reason` the `SignatureResult.detail`.
 
 `document_removed`: logged by `ingest.remove_file` when a known, not-yet-removed document's file is deleted. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id}` with `path` vault-relative.
+
+`identity_verified`: `ref_id` is the `identity_id`; `detail` is exactly `{source, issuer, verified_at}`. `identity_verify_failed`: `ref_id` null; `detail` is exactly `{source, reason}` (`AadhaarError.reason`). Neither ever holds a name, date of birth, digits or file content.
 
 `ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, holder_status, chunks_added, entities_added, facts_added}` (`holder_status` absent in entries written before it: read as null) with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 

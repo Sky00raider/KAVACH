@@ -144,11 +144,24 @@ class SignatureResult(Model):
     detail: str | None = None
 
 
+AadhaarFailReason = Literal["not_a_zip", "wrong_share_code", "no_xml", "too_large", "malformed", "bad_signature"]
+
+
+class AadhaarIdentity(Model):
+    """aadhaar.verify_okyc() result (§6.6): the only fields kept from an offline e-KYC XML."""
+
+    name: str
+    dob: str | None = None
+    """`YYYY-MM-DD`, or `YYYY` when the record has only a year of birth."""
+    last4: str
+    generated_at: str
+
+
 class Identity(Model):
     """GET /api/identity: the §6.6 identity anchor, masked. Never the full name, date of birth or ID number."""
 
     status: Literal["verified", "not_verified"]
-    source: Literal["signed_id", "config"]
+    source: Literal["aadhaar_okyc", "signed_id", "config"]
     issuer: str | None = None
     name_initials: str
     birth_year: int | None = None
@@ -632,7 +645,7 @@ AuditEvent = Literal[
     "requester_blocked", "request_received", "request_auto_refused", "request_cannot_confirm",
     "request_refused_ledger", "disclosure_answered", "disclosure_declined", "disclosure_denied",
     "memory_taught", "memory_candidate_accepted", "task_planned", "task_approved", "task_rejected",
-    "task_executed", "task_failed", "wallet_low", "request_rejected",
+    "task_executed", "task_failed", "wallet_low", "request_rejected", "identity_verified", "identity_verify_failed",
 ]
 # detail.reason of a request_rejected entry. unknown_request and wrong_requester both return the same 404.
 RejectReason = Literal[
