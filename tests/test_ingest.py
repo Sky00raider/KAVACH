@@ -128,7 +128,7 @@ def test_ingested_audit_detail_is_exact(vault):
     note.write_text("# Rent\nRent is ₹15,000, due on the 5th. See [[Flat move 2026]].", encoding="utf-8")
     res = ingest.ingest_file(note)
     assert vault.events == [("ingested", res.doc_id, {
-        "path": "notes/rent.md", "doc_id": res.doc_id, "signature_status": "unsigned",
+        "path": "notes/rent.md", "doc_id": res.doc_id, "signature_status": "unsigned", "holder_status": None,
         "chunks_added": 1, "entities_added": 2, "facts_added": 0})]  # note DOCUMENT + link placeholder
 
 
@@ -155,7 +155,7 @@ def test_ingest_marks_facts_issuer_doc_only_when_signed(vault, fresh_db, monkeyp
     monkeypatch.setattr(issuer_check, "verify_pdf",
                         lambda path: SignatureResult(status="issuer_signed", iss="mock_bank"))
     pdf = vault.root / "pdfs" / "bank_statement_signed.pdf"
-    _make_pdf(pdf, ["Salary Credit 62,000.00"])
+    _make_pdf(pdf, ["Account holder: Ananya Iyer Salary Credit 62,000.00"])
     ingest.ingest_file(pdf)
     assert fresh_db.list_facts()[0].source_type == "issuer_doc"
 

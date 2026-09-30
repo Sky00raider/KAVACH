@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 
 from kavach import config, db
 from kavach.agent import executor, planner
-from kavach.brain import chat, decide, embed, ingest, memory, watcher
+from kavach.brain import chat, decide, embed, identity, ingest, memory, watcher
 from kavach.brain.llm import LLMError
 from kavach.db import new_id, utc_now
 from kavach.models import (
@@ -52,6 +52,7 @@ from kavach.models import (
     FactVersion,
     Graph,
     Health,
+    Identity,
     IngestEvents,
     IngestSyncOut,
     IngestUploadOut,
@@ -280,6 +281,11 @@ def ingest_events(since: int = Query(0, ge=0)) -> IngestEvents:
 @owner.get("/documents")
 def documents() -> list[Document]:
     return db.list_documents()
+
+
+@owner.get("/identity")
+def identity_anchor() -> Identity:
+    return identity.current()
 
 
 @owner.get("/entities")

@@ -407,11 +407,12 @@ def bank_row_facts(chunks: list[dict]) -> list[dict]:
 
 
 def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[dict], ingested_at: str, *,
-                       doc_type: str | None = None) -> int:
+                       doc_type: str | None = None, low_confidence: bool = False) -> int:
     """Extract, ground and store §4 facts for one freshly stored document (all on `e_owner`); returns facts
     stored. At most one fact per field per document (first chunk to state it), only the fields its `doc_type`
-    can state (`allowed_fields`). If Ollama fails, extraction stops (logged) and whatever was already found is
-    kept."""
+    can state (`allowed_fields`). `low_confidence` stores every fact as `low` (a signed document in someone else's
+    name, CONTRACT §6.6: it must never displace the owner's own values). If Ollama fails, extraction stops (logged)
+    and whatever was already found is kept."""
     if not chunks:
         return 0
     reference = document_reference_date(source, chunks[0]["text"], ingested_at)
@@ -424,7 +425,8 @@ def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[
         db.supersede_and_insert_fact({
             "fact_id": new_id("f"), "entity_id": OWNER_ENTITY_ID, "field": cand["field"], "value": cand["value"],
             "source_type": source_type, "doc_id": doc_id, "quote": cand["quote"], "valid_from": valid_from,
-            "valid_to": None, "superseded_by": None, "confidence": cand["confidence"], "created_at": utc_now()}, today)
+            "valid_to": None, "superseded_by": None, "confidence": "low" if low_confidence else cand["confidence"],
+            "created_at": utc_now()}, today)
 
     if doc_type == "bank_statement":
         for cand in bank_row_facts(chunks):

@@ -39,7 +39,9 @@ from kavach.models import (
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (doc_id TEXT PRIMARY KEY, path TEXT UNIQUE, source TEXT, doc_type TEXT,
-  signature_status TEXT, iss TEXT, text_hash TEXT, ingested_at TEXT, removed_at TEXT);
+  signature_status TEXT, iss TEXT, text_hash TEXT, ingested_at TEXT, removed_at TEXT, holder_status TEXT);
+CREATE TABLE IF NOT EXISTS identity (identity_id TEXT PRIMARY KEY, source TEXT, issuer TEXT, name TEXT, dob TEXT,
+  last4 TEXT, doc_id TEXT, verified_at TEXT, removed_at TEXT);
 CREATE TABLE IF NOT EXISTS chunks (chunk_id TEXT PRIMARY KEY, doc_id TEXT, locator TEXT, text TEXT, embedding BLOB);
 CREATE TABLE IF NOT EXISTS entities (entity_id TEXT PRIMARY KEY, type TEXT, name TEXT, norm_name TEXT, attrs_json TEXT);
 CREATE TABLE IF NOT EXISTS edges (edge_id TEXT PRIMARY KEY, src TEXT, rel TEXT, dst TEXT,
@@ -63,7 +65,7 @@ CREATE TABLE IF NOT EXISTS audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts 
 """
 
 TABLES = (
-    "documents", "chunks", "entities", "edges", "facts", "memory_candidates", "credentials",
+    "documents", "identity", "chunks", "entities", "edges", "facts", "memory_candidates", "credentials",
     "requesters", "requests", "disclosure_ledger", "tasks", "audit_log",
 )
 
@@ -103,6 +105,10 @@ def init_db(path: Path | None = None) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     with connect(target) as conn:
         conn.executescript(SCHEMA)
+        # columns added after a database was first created (CONTRACT §8)
+        doc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
+        if "holder_status" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN holder_status TEXT")
 
 
 def ping() -> bool:
@@ -154,7 +160,8 @@ def fetch_all(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
 
 # --- ingestion writes (one transaction each) ------------------------------------
 
-_DOC_COLS = ("doc_id", "path", "source", "doc_type", "signature_status", "iss", "text_hash", "ingested_at", "removed_at")
+_DOC_COLS = ("doc_id", "path", "source", "doc_type", "signature_status", "iss", "text_hash", "ingested_at", "removed_at",
+             "holder_status")
 
 
 def get_document_by_path(path: str) -> dict[str, Any] | None:
@@ -163,11 +170,11 @@ def get_document_by_path(path: str) -> dict[str, Any] | None:
 
 
 def document_status(doc_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """{doc_id: {path, signature_status}} for the given ids (unknown ids are absent)."""
+    """{doc_id: {path, signature_status, holder_status}} for the given ids (unknown ids are absent)."""
     ids = list(dict.fromkeys(doc_ids))
     if not ids:
         return {}
-    rows = fetch_all(f"SELECT doc_id, path, signature_status FROM documents WHERE doc_id IN "
+    rows = fetch_all(f"SELECT doc_id, path, signature_status, holder_status FROM documents WHERE doc_id IN "
                      f"({', '.join('?' * len(ids))})", tuple(ids))
     return {r["doc_id"]: r for r in rows}
 
@@ -210,6 +217,35 @@ def remove_document(doc_id: str, removed_at: str, closed_on: str) -> None:
         _close_document_knowledge(conn, doc_id, closed_on)
         conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
         conn.execute("UPDATE documents SET removed_at = ? WHERE doc_id = ?", (removed_at, doc_id))
+
+
+def signed_documents() -> list[dict[str, Any]]:
+    """Live `issuer_signed` documents (doc_id, path, doc_type, iss, holder_status), oldest ingest first."""
+    return fetch_all("SELECT doc_id, path, doc_type, iss, holder_status FROM documents WHERE removed_at IS NULL "
+                     "AND signature_status = 'issuer_signed' ORDER BY ingested_at, rowid")
+
+
+# --- identity anchor (brain/identity.py, CONTRACT §6.6) ---------------------------
+
+
+def live_identity() -> dict[str, Any] | None:
+    """The identity row in force: the newest one not removed."""
+    return fetch_one("SELECT * FROM identity WHERE removed_at IS NULL ORDER BY verified_at DESC, rowid DESC LIMIT 1")
+
+
+def set_identity(row: dict[str, Any]) -> None:
+    """Retire any live identity row and insert `row` as the one in force, in one transaction."""
+    cols = ("identity_id", "source", "issuer", "name", "dob", "last4", "doc_id", "verified_at", "removed_at")
+    with connect() as conn:
+        conn.execute("UPDATE identity SET removed_at = ? WHERE removed_at IS NULL", (row["verified_at"],))
+        conn.execute(f"INSERT INTO identity ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                     tuple(row.get(c) for c in cols))
+
+
+def retire_identity(removed_at: str) -> None:
+    """No identity row in force any more (its document went)."""
+    with connect() as conn:
+        conn.execute("UPDATE identity SET removed_at = ? WHERE removed_at IS NULL", (removed_at,))
 
 
 # --- search index (brain/embed.py) ----------------------------------------------

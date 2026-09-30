@@ -3,7 +3,8 @@
 In order:
 1. unsupported, not disclosable or not well-formed                   -> REFUSED
 2. issuer_claim set and the wallet has an unused copy                 -> ISSUER_PROOF, result = the signed value
-3. a current, high-confidence `issuer_doc` fact on the owner whose document is still `issuer_signed`, and a
+3. a current, high-confidence `issuer_doc` fact on the owner whose document is still `issuer_signed` and in the
+   owner's name (`holder_status` verified, CONTRACT §6.6), and a
    yes/no claim                                                       -> ledger.check(); blocked -> REFUSED,
                                                                          else OWNER_ATTESTED, result = comparison
 4. anything else                                                      -> CANNOT_CONFIRM
@@ -124,12 +125,14 @@ def _today() -> date:
 
 
 def _grounded_fact(field: str) -> tuple[Fact, str] | None:
-    """The newest current, high-confidence issuer_doc fact on the owner whose document still verifies."""
+    """The newest current, high-confidence issuer_doc fact on the owner whose document still verifies and is in the
+    owner's name (§6.6: a friend's genuine statement proves nothing about the owner)."""
     facts = [f for f in db.list_facts(field=field, current=True)
              if f.entity_id == OWNER_ENTITY_ID and f.source_type == "issuer_doc" and f.confidence == "high"
              and f.doc_id]
     docs = db.document_status(f.doc_id for f in facts)
-    signed = [f for f in facts if docs.get(f.doc_id, {}).get("signature_status") == "issuer_signed"]
+    signed = [f for f in facts if docs.get(f.doc_id, {}).get("signature_status") == "issuer_signed"
+              and docs[f.doc_id].get("holder_status") == "verified"]
     if not signed:
         return None
     fact = max(signed, key=lambda f: f.valid_from or "")  # list_facts is newest first; max keeps the first on ties

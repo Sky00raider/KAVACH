@@ -43,7 +43,8 @@ def owner_and_landlord(fresh_db, tmp_path, monkeypatch):
     wallet.import_batch(tmp_path / "b.json")
     # a grounded bank-statement fact, so the 60k question becomes an owner attestation
     db.insert("documents", {"doc_id": "d_stmt", "path": "pdfs/bank_statement.pdf", "source": "pdf",
-                            "signature_status": "issuer_signed", "text_hash": "h", "ingested_at": db.utc_now()})
+                            "signature_status": "issuer_signed", "holder_status": "verified", "text_hash": "h",
+                            "ingested_at": db.utc_now()})
     db.insert("facts", {"fact_id": "f_income", "entity_id": "e_owner", "field": "monthly_income", "value": "62000",
                         "source_type": "issuer_doc", "doc_id": "d_stmt", "quote": "62,000", "confidence": "high",
                         "valid_from": "2026-04-01", "created_at": db.utc_now()})

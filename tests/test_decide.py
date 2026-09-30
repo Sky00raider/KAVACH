@@ -37,11 +37,12 @@ def _use_all_copies() -> None:
 
 def _fact(field: str, value: str, *, status: str = "issuer_signed", source_type: str = "issuer_doc",
           confidence: str = "high", valid_from: str = "2026-04-01", superseded_by: str | None = None,
-          doc: str = "d_stmt") -> None:
+          doc: str = "d_stmt", holder: str | None = "verified") -> None:
     if db.fetch_one("SELECT 1 FROM documents WHERE doc_id = ?", (doc,)) is None:
         path = "pdfs/bank_statement_signed.pdf" if doc == "d_stmt" else f"pdfs/{doc}.pdf"
-        db.insert("documents", {"doc_id": doc, "path": path, "source": "pdf",
-                                "signature_status": status, "text_hash": "h", "ingested_at": "2026-09-01T00:00:00Z"})
+        db.insert("documents", {"doc_id": doc, "path": path, "source": "pdf", "signature_status": status,
+                                "holder_status": holder if status == "issuer_signed" else None, "text_hash": "h",
+                                "ingested_at": "2026-09-01T00:00:00Z"})
     db.insert("facts", {"fact_id": db.new_id("f"), "entity_id": "e_owner", "field": field, "value": value,
                         "source_type": source_type, "doc_id": doc, "quote": value, "valid_from": valid_from,
                         "superseded_by": superseded_by, "confidence": confidence,

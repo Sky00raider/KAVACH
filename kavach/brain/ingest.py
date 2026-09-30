@@ -11,6 +11,12 @@ chunks are stored, except for documents whose signature check failed: those get 
 re-ingested so it gets them. A bank statement's rows also get code-parsed `PAID` edges (`entities.bank_edges`),
 never a model guess (entities.py's docstring); `source_type` for extracted facts is `issuer_doc` when the
 document verifies, else `extracted` (never called for a document whose signature check failed).
+
+Holder check (CONTRACT §6.6, `identity`): a signed document gets `holder_status` against the identity anchor. One
+that is not `verified` gives `extracted` facts at low confidence and no `PAID` edges. A signed ID card of an
+identity issuer pins the anchor when none is in force; the anchor's document going (removed, changed, no longer
+verifying) retires it in favour of the next verified ID card. Either way every other signed document is run through
+`ingest_file` again, which re-extracts it only when its holder status changes what its facts can be.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from kavach import config, db, textnorm
-from kavach.brain import embed, entities, extract
+from kavach.brain import embed, entities, extract, identity
 from kavach.db import new_id, utc_now
 from kavach.models import DocSource, IngestResult, SignatureResult
 from kavach.trust import audit, issuer_check
@@ -213,21 +219,64 @@ def vault_relative(path: Path) -> str:
 # --- reading -------------------------------------------------------------------------------------------
 
 
-def _read(path: Path, source: DocSource) -> tuple[list[tuple[str, str]], str]:
-    """([(locator, text)], text_hash). PermissionError (a Windows copy lock) propagates for the watcher to retry."""
+def _read(path: Path, source: DocSource) -> tuple[list[tuple[str, str]], str, str]:
+    """([(locator, text)], text_hash, raw text with its lines: a PDF's pages joined by newlines). PermissionError
+    (a Windows copy lock) propagates for the watcher to retry."""
     if source == "pdf":
         with open(path, "rb"):  # surface a copy lock as PermissionError before PyMuPDF sees the file
             pass
         pages = textnorm.pdf_pages(path)
-        digest = textnorm.text_hash("\n".join(pages))  # == textnorm.pdf_text_hash(path), without a second parse
-        return [(f"page {i}", textnorm.normalize_text(p)) for i, p in enumerate(pages, 1)], digest
+        raw = "\n".join(pages)
+        digest = textnorm.text_hash(raw)  # == textnorm.pdf_text_hash(path), without a second parse
+        return [(f"page {i}", textnorm.normalize_text(p)) for i, p in enumerate(pages, 1)], digest, raw
     raw = path.read_text(encoding="utf-8-sig", errors="replace")
     if source == "chat":
         messages = parse_whatsapp(raw)
         if len(messages) >= 2:  # a WhatsApp export; any other .txt stays plain text
-            return whatsapp_windows(messages), textnorm.text_hash(raw)
+            return whatsapp_windows(messages), textnorm.text_hash(raw), raw
     label = "note" if source == "note" else "chat"
-    return [(f"{label}: {path.name}", clean_text(raw))], textnorm.text_hash(raw)
+    return [(f"{label}: {path.name}", clean_text(raw))], textnorm.text_hash(raw), raw
+
+
+# --- identity anchor (CONTRACT §6.6) -------------------------------------------------------------------------
+
+
+def _issuer_facts(signature_status: str, holder: str | None) -> bool:
+    """Whether a document's facts are `issuer_doc` (NULL holder: stored before the holder check, when they were)."""
+    return signature_status == "issuer_signed" and holder in (None, "verified")
+
+
+def _anchor_left(doc_id: str) -> bool:
+    """If `doc_id` is the anchor's document, retire the anchor and pin the next live verified ID card of an identity
+    issuer (oldest first), if any. True when the anchor changed."""
+    live = db.live_identity()
+    if live is None or live["doc_id"] != doc_id:
+        return False
+    db.retire_identity(utc_now())
+    for d in db.signed_documents():
+        if d["doc_id"] == doc_id or d["holder_status"] != "verified" or \
+                not identity.is_identity_document(d["doc_type"], "issuer_signed", d["iss"]):
+            continue
+        try:
+            raw = "\n".join(textnorm.pdf_pages(Path(config.VAULT_DIR) / d["path"]))
+        except (OSError, RuntimeError):
+            continue
+        if identity.pin(d["doc_id"], raw, d["iss"]):
+            break
+    return True
+
+
+def _recheck_holders(skip: str) -> None:
+    """The anchor changed: every other live signed document goes through `ingest_file` again, which re-checks its
+    holder (and re-extracts it only when that changes what its facts can be)."""
+    for d in db.signed_documents():
+        path = Path(config.VAULT_DIR) / d["path"]
+        if d["doc_id"] == skip or not path.is_file():
+            continue
+        try:
+            ingest_file(path)
+        except (OSError, RuntimeError, ValueError) as exc:  # the watcher's next event for that file retries
+            log.warning("holder recheck of %s failed: %s", d["path"], exc)
 
 
 # --- public (CONTRACT §7) ----------------------------------------------------------------------------
@@ -244,35 +293,50 @@ def ingest_file(path: Path) -> IngestResult:
     doc_id = existing["doc_id"] if existing else new_id("d")
 
     try:
-        sections, digest = _read(path, source)
+        sections, digest, raw = _read(path, source)
     except PermissionError:
         raise
     except (OSError, RuntimeError) as exc:  # half-written or corrupt PDF, file gone: the next event retries
         log.warning("could not read %s, left unchanged: %s", rel, exc)
         status = existing["signature_status"] if existing else "unsigned"
-        return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=status)
+        return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=status,
+                            holder_status=existing["holder_status"] if existing else None)
 
     sig = issuer_check.verify_pdf(path) if source == "pdf" else SignatureResult(status="unsigned")
+    opening = sections[0][1][: config.CHUNK_SIZE] if sections else ""
+    doc_type = _doc_type(source, path.name, opening)
+
+    is_id = identity.is_identity_document(doc_type, sig.status, sig.iss)
+    changed_text = existing is not None and (existing["text_hash"] != digest or existing["removed_at"] is not None)
+    anchor_changed = _anchor_left(doc_id) if (changed_text or not is_id) else False
+    if is_id:
+        anchor_changed = identity.pin(doc_id, raw, sig.iss) or anchor_changed
+    holder = identity.holder_status(raw, doc_type) if sig.status == "issuer_signed" else None
 
     leaves_invalid = existing is not None and existing["signature_status"] == "invalid" and sig.status != "invalid"
-    if existing and existing["removed_at"] is None and existing["text_hash"] == digest and not leaves_invalid:
-        if (existing["signature_status"], existing["iss"]) != (sig.status, sig.iss):
-            db.update("documents", "doc_id", doc_id, {"signature_status": sig.status, "iss": sig.iss})
+    facts_change = existing is not None and existing["signature_status"] == sig.status == "issuer_signed" and \
+        _issuer_facts(existing["signature_status"], existing["holder_status"]) != _issuer_facts(sig.status, holder)
+    if existing and existing["removed_at"] is None and existing["text_hash"] == digest and not leaves_invalid \
+            and not facts_change:
+        if (existing["signature_status"], existing["iss"], existing["holder_status"]) != (sig.status, sig.iss, holder):
+            db.update("documents", "doc_id", doc_id,
+                      {"signature_status": sig.status, "iss": sig.iss, "holder_status": holder})
             if sig.status == "invalid":
                 db.close_document_knowledge(doc_id, closed_on=date.today().isoformat())
-        return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status)
+        if anchor_changed:
+            _recheck_holders(skip=doc_id)
+        return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status, holder_status=holder)
 
     chunks = [{"chunk_id": new_id("c"), "locator": locator, "text": piece}
               for locator, text in sections for piece in chunk_text(text)]
     for chunk, blob in zip(chunks, embed.embed_documents([c["text"] for c in chunks])):
         chunk["embedding"] = blob
 
-    opening = sections[0][1][: config.CHUNK_SIZE] if sections else ""
-    doc_type = _doc_type(source, path.name, opening)
     ingested_at = utc_now()
     db.store_document({"doc_id": doc_id, "path": rel, "source": source,
                        "doc_type": doc_type, "signature_status": sig.status,
-                       "iss": sig.iss, "text_hash": digest, "ingested_at": ingested_at, "removed_at": None},
+                       "iss": sig.iss, "text_hash": digest, "ingested_at": ingested_at, "removed_at": None,
+                       "holder_status": holder},
                       chunks, closed_on=date.today().isoformat())
     embed.invalidate()
 
@@ -285,21 +349,25 @@ def ingest_file(path: Path) -> IngestResult:
         project, related = note_structure("\n".join(t for _, t in sections)) if source == "note" else (None, [])
         entities_added = entities.index_document(rel, source, chunks, list(first_link.values()), doc_type=doc_type,
                                                  project=project, related=related)
-        if doc_type == "bank_statement":
+        # a signed document in someone else's name (§6.6) says nothing about what the owner paid or earns
+        other_holder = sig.status == "issuer_signed" and holder != "verified"
+        if doc_type == "bank_statement" and not other_holder:
             bank_edges = entities.bank_edges(chunks)
             if bank_edges:
                 db.insert_edges(bank_edges)
-        source_type = "issuer_doc" if sig.status == "issuer_signed" else "extracted"
+        source_type = "issuer_doc" if _issuer_facts(sig.status, holder) else "extracted"
         facts_added = extract.facts_for_document(doc_id, source, source_type, chunks, ingested_at,
-                                                    doc_type=doc_type)
+                                                    doc_type=doc_type, low_confidence=other_holder)
 
-    result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status,
+    result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status, holder_status=holder,
                           chunks_added=len(chunks), entities_added=entities_added, facts_added=facts_added)
     if sig.status == "invalid":
         audit.log("document_signature_failed", doc_id, {"path": rel, "doc_id": doc_id, "iss": sig.iss,
                                                         "reason": sig.detail})
-    audit.log("ingested", doc_id, result.model_dump(include={"path", "doc_id", "signature_status", "chunks_added",
-                                                             "entities_added", "facts_added"}))
+    audit.log("ingested", doc_id, result.model_dump(include={"path", "doc_id", "signature_status", "holder_status",
+                                                             "chunks_added", "entities_added", "facts_added"}))
+    if anchor_changed:
+        _recheck_holders(skip=doc_id)
     return result
 
 
@@ -313,4 +381,6 @@ def remove_file(path: Path) -> None:
     db.remove_document(row["doc_id"], utc_now(), closed_on=date.today().isoformat())
     embed.invalidate()
     audit.log("document_removed", row["doc_id"], {"path": rel, "doc_id": row["doc_id"]})
+    if _anchor_left(row["doc_id"]):
+        _recheck_holders(skip=row["doc_id"])
     return None

@@ -95,6 +95,8 @@ document chunk for a question about a specific number or value, and say where th
 date, still with a citation number, e.g. "Your salary is 62000, from your bank statement dated 2026-04-01 [1]." \
 A "future change" line is never the current value: give the "today" value first, then \
 the change and when it starts, each with its citation.
+- A chunk marked holder="someone else" is a signed document in another person's name: never give its values \
+as the owner's.
 - A "condition check (computed)" line already compares a decision's condition with the owner's values: start \
 your answer with its outcome, then the values, with its citation. Do not compare the numbers yourself.
 - If the chunks do not contain the answer, reply exactly: {NOT_IN_VAULT}
@@ -131,8 +133,16 @@ def _escape(text: str) -> str:
     return re.sub(r"<(/?)(chunk|vault)", r"‹\1\2", text, flags=re.IGNORECASE)
 
 
+def not_owners(doc_ids) -> set[str]:
+    """Documents signed by an issuer but not in the owner's name (CONTRACT §6.6)."""
+    return {d for d, row in db.document_status(doc_ids).items()
+            if row["signature_status"] == "issuer_signed" and row.get("holder_status") not in (None, "verified")}
+
+
 def _context(chunks: list[ScoredChunk]) -> str:
-    parts = [f'<chunk n="{n}" source="{_escape(c.locator).replace(chr(34), chr(39))}">\n'
+    others = not_owners(c.doc_id for c in chunks)
+    holder = {True: ' holder="someone else"', False: ""}
+    parts = [f'<chunk n="{n}" source="{_escape(c.locator).replace(chr(34), chr(39))}"{holder[c.doc_id in others]}>\n'
              f'{_escape(model_text(c.text))}\n</chunk>' for n, c in enumerate(chunks, 1)]
     return "<vault>\n" + "\n".join(parts) + "\n</vault>"
 
@@ -210,6 +220,8 @@ def source_label(fact: dict, doc: dict | None) -> str:
     `source_type` (a WhatsApp chat is not "your notes")."""
     if fact["source_type"] == "issuer_doc":
         return _ISSUER_LABEL.get((doc or {}).get("doc_type") or "", "issuer-signed document")
+    if doc and doc.get("signature_status") == "issuer_signed" and doc.get("holder_status") not in (None, "verified"):
+        return "signed document in someone else's name"
     if fact["source_type"] == "extracted" and doc:
         return _EXTRACTED_LABEL.get(doc.get("source") or "", "from your files")
     return _SOURCE_LABEL.get(fact["source_type"], "from your files")
@@ -229,8 +241,8 @@ def _fact_text(fact: dict, today: str) -> str:
     which is today's value outright: with both lines as "field = value (..., from date)", qwen2.5:3b answered
     "What's my rent?" with the scheduled 16000 in 5/5 real runs. (An extra "not today's value" was copied into
     answers as an uncited sentence.)"""
-    doc = db.fetch_one("SELECT path, source, doc_type FROM documents WHERE doc_id = ?",
-                       (fact["doc_id"],)) if fact.get("doc_id") else None
+    doc = db.fetch_one("SELECT path, source, doc_type, signature_status, holder_status FROM documents "
+                       "WHERE doc_id = ?", (fact["doc_id"],)) if fact.get("doc_id") else None
     bits = [source_label(fact, doc)]
     if doc:
         bits.append(doc["path"].rsplit("/", 1)[-1])
@@ -288,8 +300,8 @@ def _fact_chunk(fact: dict) -> dict | None:
 
 def _fact_brief(fact: dict) -> str:
     """"14500 (bank-signed statement, bank_statement_signed.pdf)" for a condition-check line."""
-    doc = db.fetch_one("SELECT path, source, doc_type FROM documents WHERE doc_id = ?",
-                       (fact["doc_id"],)) if fact.get("doc_id") else None
+    doc = db.fetch_one("SELECT path, source, doc_type, signature_status, holder_status FROM documents "
+                       "WHERE doc_id = ?", (fact["doc_id"],)) if fact.get("doc_id") else None
     bits = [source_label(fact, doc)] + ([doc["path"].rsplit("/", 1)[-1]] if doc else [])
     return f"{fact['value']} ({', '.join(bits)})"
 
