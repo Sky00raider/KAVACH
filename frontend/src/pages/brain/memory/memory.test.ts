@@ -114,6 +114,12 @@ describe("sourceView", () => {
     expect(sourceView(note, doc("note", "notes/budget.md")).label).toBe("Your notes")
     expect(sourceView(fv("t", "1", { source_type: "owner_stated" }))).toEqual({ label: "You told me", tone: "owner" })
   })
+  it("marks facts from a signed document in someone else's name", () => {
+    const friend = { ...doc("pdf", "pdfs/friend_bank_statement.pdf", "mock_bank"), signature_status: "issuer_signed",
+      holder_status: "mismatch" } as Document
+    expect(sourceView(fv("t", "95000", { source_type: "extracted" }), friend)).toEqual({
+      label: "Signed, but not in your name", tone: "other_holder", file: "friend_bank_statement.pdf" })
+  })
 })
 
 describe("timelineOf", () => {

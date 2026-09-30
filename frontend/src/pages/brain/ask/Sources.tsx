@@ -15,7 +15,7 @@ import {
 import { api, type Chunk, type Document } from "@/api/client"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/components/lib/utils"
-import { issuerName } from "../graph/graph"
+import { holderWarning, issuerName } from "../graph/graph"
 import { fieldLabel, formatDate, formatValue } from "../memory/memory"
 import { basename, sourceLabel, sourceParts, type SourceRef } from "./answer"
 import { findHighlight, highlightCandidates, parseComputed, type ComputedLine, type SourceBit } from "./computed"
@@ -39,7 +39,16 @@ export function SourceIcon({ source, className }: { source?: string; className?:
   return <Icon className={cn("size-3.5 shrink-0", className)} />
 }
 
-export function SignatureBadge({ status, iss }: { status?: string; iss?: string | null }) {
+export function SignatureBadge({ status, iss, holder }: { status?: string; iss?: string | null; holder?: string | null }) {
+  const warning = holderWarning(status, holder)
+  if (warning) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-warning/12 px-1.5 py-0.5 text-[11px] font-medium text-warning">
+        <ShieldAlert className="size-3" />
+        {warning}
+      </span>
+    )
+  }
   if (status === "issuer_signed") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-success/12 px-1.5 py-0.5 text-[11px] font-medium text-success">
@@ -188,7 +197,7 @@ function SourceCard({ source, doc }: { source: SourceRef; doc?: Document }) {
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-mono">{source.locator || chunk?.locator}</span>
-            <SignatureBadge status={doc?.signature_status} iss={doc?.iss} />
+            <SignatureBadge status={doc?.signature_status} iss={doc?.iss} holder={doc?.holder_status} />
           </p>
         </div>
       </div>
@@ -293,7 +302,9 @@ export function SourcesRow({ sources, docs, cited }: {
               {computed && <span className="shrink-0 font-medium">{fieldLabel(computed.field)} ·</span>}
               <span className="truncate">{name}</span>
               {page && <span className="shrink-0 text-muted-foreground">{page}</span>}
-              {doc?.signature_status === "issuer_signed" && <ShieldCheck className="size-3 shrink-0 text-success" />}
+              {doc?.signature_status === "issuer_signed" && (holderWarning(doc.signature_status, doc.holder_status)
+                ? <ShieldAlert className="size-3 shrink-0 text-warning" />
+                : <ShieldCheck className="size-3 shrink-0 text-success" />)}
               {doc?.signature_status === "invalid" && <ShieldAlert className="size-3 shrink-0 text-destructive" />}
             </button>
           </SourcePopover>

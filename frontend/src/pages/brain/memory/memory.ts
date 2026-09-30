@@ -1,7 +1,7 @@
 // Memory page logic (BRAIN step 11): /api/memory/timeline grouped per field, kept free of React for vitest.
 import type { Document, FactVersion } from "@/api/client"
 import { basename } from "../ask/answer"
-import { issuerName } from "../graph/graph"
+import { holderWarning, issuerName } from "../graph/graph"
 
 /** One field's history: today's value, known future changes, and what it used to be. */
 export interface FieldGroup {
@@ -117,7 +117,7 @@ export function formatValue(field: string, value: string): string {
   return v
 }
 
-export type Tone = "signed" | "doc" | "owner"
+export type Tone = "signed" | "doc" | "owner" | "other_holder"
 
 /** Where a fact comes from, mirroring `chat.source_label` on the server. */
 export function sourceView(v: Pick<FactVersion, "source_type">, doc?: Document): { label: string; tone: Tone; file?: string } {
@@ -127,6 +127,8 @@ export function sourceView(v: Pick<FactVersion, "source_type">, doc?: Document):
     const who = doc?.iss ? ` by ${issuerName(doc.iss)}` : ""
     return { label: `Signed${who}`, tone: "signed", file }
   }
+  const warning = holderWarning(doc?.signature_status, doc?.holder_status)
+  if (warning) return { label: warning, tone: "other_holder", file }
   const label = doc?.source === "chat" ? "WhatsApp chat" : doc?.source === "note" ? "Your notes" : "Unsigned document"
   return { label, tone: "doc", file }
 }

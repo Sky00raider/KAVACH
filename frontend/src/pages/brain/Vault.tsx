@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
+  BadgeCheck,
   Eye,
   EyeOff,
   FileSearch,
@@ -10,12 +11,13 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  ShieldQuestion,
   Shuffle,
   Sparkles,
   Waypoints,
   X,
 } from "lucide-react"
-import { api, type Document, type Entity, type Graph } from "@/api/client"
+import { api, type Document, type Entity, type Graph, type Identity } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
 import { Button } from "@/components/ui/button"
@@ -36,6 +38,7 @@ import {
   displayName,
   docEntityIds,
   docFilterNotice,
+  issuerName,
   neighbours,
   relLabel,
   signatureView,
@@ -73,12 +76,38 @@ function SignaturePill({ doc }: { doc: Document }) {
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
-        v.tone === "success" ? "bg-success/12 text-success" : "bg-destructive/12 text-destructive",
+        v.tone === "success" && "bg-success/12 text-success",
+        v.tone === "warning" && "bg-warning/12 text-warning",
+        v.tone === "error" && "bg-destructive/12 text-destructive",
       )}
     >
       <Icon className="size-3" />
       {v.label}
     </span>
+  )
+}
+
+/** Whose documents count as the owner's (CONTRACT §6.6): the signed ID's holder, or the configured name. */
+function IdentityLine({ identity }: { identity?: Identity }) {
+  if (!identity) return null
+  const verified = identity.status === "verified"
+  const Icon = verified ? BadgeCheck : ShieldQuestion
+  return (
+    <p
+      className="mx-1.5 mb-0.5 flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] text-muted-foreground"
+      title="Signed documents count as yours only when they are in this name"
+    >
+      <Icon className={cn("size-3.5 shrink-0", verified ? "text-success" : "text-warning")} />
+      {verified ? (
+        <span>
+          You: <span className="font-medium text-foreground">{identity.name_initials}</span>
+          {identity.birth_year ? `, born ${identity.birth_year}` : ""}, from your ID signed by{" "}
+          {identity.issuer ? issuerName(identity.issuer) : "an issuer"}
+        </span>
+      ) : (
+        <span>Identity not verified: add your signed ID. Using the configured name ({identity.name_initials})</span>
+      )}
+    </p>
   )
 }
 
@@ -270,6 +299,7 @@ function EntityPanel({ graph, entity, id, docs, showClosed, onSelect, onClose }:
 export default function Vault() {
   const ingest = useIngest()
   const documents = usePoll(api.documents, null, [ingest.lastSeq])
+  const identity = usePoll(api.identity, null, [ingest.lastSeq])
   const entities = usePoll(() => api.entities(), null, [ingest.lastSeq])
   const graphPoll = usePoll(() => api.graph(), null, [ingest.lastSeq])
   const graph = useStable(graphPoll.data)
@@ -408,7 +438,10 @@ export default function Vault() {
             {documents.error && !documents.data ? (
               <p className="p-3 text-sm text-destructive">Could not load documents: {documents.error.message}</p>
             ) : (
+              <>
+              <IdentityLine identity={identity.data} />
               <DocumentList docs={documents.data ?? []} counts={docCounts} active={docId} onPick={(id) => setDocId((cur) => (cur === id ? null : id))} />
+              </>
             )}
           </TabsContent>
           <TabsContent value="entities" className="flex min-h-0 flex-1 flex-col">

@@ -258,7 +258,17 @@ export function issuerName(iss: string): string {
   return iss.split(/[_\s-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")
 }
 
-export function signatureView(doc: Pick<Document, "signature_status" | "iss">): { tone: "success" | "error" | "muted"; label: string } {
+/** Amber label for an issuer-signed document that is not in the owner's name (CONTRACT §6.6), else null. */
+export function holderWarning(status?: string | null, holder?: string | null): string | null {
+  if (status !== "issuer_signed") return null
+  if (holder === "mismatch") return "Signed, but not in your name"
+  if (holder === "unknown") return "Signed, holder not confirmed"
+  return null
+}
+
+export function signatureView(doc: Pick<Document, "signature_status" | "iss" | "holder_status">): { tone: "success" | "warning" | "error" | "muted"; label: string } {
+  const warning = holderWarning(doc.signature_status, doc.holder_status)
+  if (warning) return { tone: "warning", label: warning }
   if (doc.signature_status === "issuer_signed") return { tone: "success", label: doc.iss ? `Signed by ${issuerName(doc.iss)}` : "Issuer-signed" }
   if (doc.signature_status === "invalid") return { tone: "error", label: "Signature check failed" }
   return { tone: "muted", label: "Unsigned" }

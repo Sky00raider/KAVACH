@@ -28,6 +28,7 @@ import {
   relLabel,
   shortLabel,
   signatureView,
+  holderWarning,
   zoomLabelPx,
   type VNode,
 } from "./graph"
@@ -162,6 +163,12 @@ describe("graph view", () => {
     expect(signatureView({ signature_status: "issuer_signed", iss: "mock_govt" })).toEqual({ tone: "success", label: "Signed by Mock Govt" })
     expect(signatureView({ signature_status: "invalid", iss: "mock_bank" })).toEqual({ tone: "error", label: "Signature check failed" })
     expect(signatureView({ signature_status: "unsigned", iss: null }).tone).toBe("muted")
+    // CONTRACT §6.6: signed by a real issuer, but for someone else
+    expect(signatureView({ signature_status: "issuer_signed", iss: "mock_bank", holder_status: "mismatch" }))
+      .toEqual({ tone: "warning", label: "Signed, but not in your name" })
+    expect(signatureView({ signature_status: "issuer_signed", iss: "mock_bank", holder_status: "unknown" }).tone).toBe("warning")
+    expect(signatureView({ signature_status: "issuer_signed", iss: "mock_bank", holder_status: "verified" }).tone).toBe("success")
+    expect(holderWarning("invalid", "mismatch")).toBeNull()
     const long = "I decided to renew only if rent stays under ₹15,000"
     expect(shortLabel(long)).toHaveLength(LABEL_MAX)
     expect(shortLabel(long).endsWith("…")).toBe(true)

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Popover } from "radix-ui"
-import { Brain, CalendarClock, ChevronDown, History, Loader2, Search, ShieldCheck, Sparkles, UserRound } from "lucide-react"
+import { Brain, CalendarClock, ChevronDown, History, Loader2, Search, ShieldAlert, ShieldCheck, Sparkles, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { api, ApiError, type Document, type FactVersion } from "@/api/client"
 import { usePoll } from "@/api/poll"
@@ -39,7 +39,7 @@ function teachError(e: unknown): string {
 /** Source chip; click shows the exact sentence the value was read from. */
 function SourceChip({ v, doc }: { v: FactVersion; doc?: Document }) {
   const s = sourceView(v, doc)
-  const Icon = s.tone === "signed" ? ShieldCheck : s.tone === "owner" ? UserRound : null
+  const Icon = s.tone === "signed" ? ShieldCheck : s.tone === "owner" ? UserRound : s.tone === "other_holder" ? ShieldAlert : null
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -51,6 +51,7 @@ function SourceChip({ v, doc }: { v: FactVersion; doc?: Document }) {
             s.tone === "signed" && "bg-success/12 text-success hover:bg-success/20",
             s.tone === "owner" && "bg-primary/12 text-primary hover:bg-primary/20",
             s.tone === "doc" && "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+            s.tone === "other_holder" && "bg-warning/12 text-warning hover:bg-warning/20",
           )}
         >
           {Icon ? <Icon className="size-3 shrink-0" /> : <SourceIcon source={doc?.source} className="size-3" />}

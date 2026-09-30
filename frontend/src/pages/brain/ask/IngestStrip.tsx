@@ -100,7 +100,7 @@ function EventChip({ event, fresh }: { event: IngestEvent; fresh: boolean }) {
           {[timeAgo(event.ts), ...counts].join(" · ")}
         </span>
       </span>
-      <SignatureBadge status={event.signature_status} />
+      <SignatureBadge status={event.signature_status} holder={event.holder_status} />
     </li>
   )
 }
