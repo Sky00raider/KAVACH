@@ -44,7 +44,12 @@ _TODO: measured results only, with sample sizes._
 - Third-party libraries are used through their normal package interfaces and listed in `requirements.txt` and `frontend/package.json`.
 
 ## Licence
-MIT (see LICENSE).
+KAVACH's own code is MIT (see LICENSE).
+
+### Third-party licences
+- **PyMuPDF** (PDF text extraction, `pymupdf` in `requirements.txt`) is licensed **AGPL-3.0** (or a commercial licence from Artifex). Anyone redistributing KAVACH together with PyMuPDF must meet the AGPL's terms for that combination; see https://pymupdf.readthedocs.io/en/latest/about.html#license-and-copyright.
+- The other Python and frontend dependencies are under permissive licences (MIT, BSD or Apache-2.0); the bundled Inter and JetBrains Mono fonts are under the SIL Open Font License 1.1.
+- **Models are not part of this repository.** Ollama downloads them, each under its own licence: `qwen2.5:7b` and `nomic-embed-text` are Apache-2.0; `qwen2.5:3b` (the laptop default in `kavach/config.py`) is under the Qwen Research License, which does not allow commercial use. Check each model's licence before any commercial use.
 
 ## Team
 _TODO_
