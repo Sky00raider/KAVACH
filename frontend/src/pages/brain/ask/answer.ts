@@ -69,11 +69,17 @@ export function answerBlocks(text: string, flags: string[] = []): Block[] {
   const mark = flags.includes("uncited_sentence")
   const blocks: Block[] = []
   let last = 0
+  let previous = ""
   for (const { start, end } of sentenceSpans(text)) {
     if (start > last) blocks.push({ pieces: [{ kind: "text", text: text.slice(last, start) }], uncited: false })
     const sentence = text.slice(start, end)
     const uncited = mark && citedNumbers(sentence).length === 0 && !saysNotInVault(sentence)
-    blocks.push({ pieces: splitCitations(sentence), uncited })
+    const context = `${previous} ${sentence}`
+    blocks.push({
+      pieces: splitCitations(sentence).map((p) => (p.kind === "text" ? { ...p, text: prettyText(p.text, context) } : p)),
+      uncited,
+    })
+    previous = sentence
     last = end
   }
   if (last < text.length) blocks.push({ pieces: [{ kind: "text", text: text.slice(last) }], uncited: false })
@@ -158,6 +164,39 @@ export function footerText(turn: Turn): string | null {
     parts.push(`${formatMs(turn.done.first_token_ms)} first token / ${formatMs(turn.done.latency_ms)} total`)
   }
   return parts.join(" · ")
+}
+
+// --- display formatting of the model's raw numbers (the answer text itself is never changed) --------------------
+
+const ISO_DATE =/\b(\d{4})-(\d{2})-(\d{2})\b/g
+const MONEY_CONTEXT = /\b(?:rent|salary|income|fees?|deposit|paid|pay|pays|paying|amount|credited|credit|debit|emi|budget|cost|price|rupees?|inr|rs|balance|spend|spent|earns?|earning|payment)\b|₹/i
+/** A number after one of these is an identifier, not money ("PIN 560038", "account number 48213392"). */
+const NOT_MONEY_BEFORE =
+  /\b(?:pin(?:\s*code)?|code|number|no\.?|account|a\/c|phone|mobile|id|roll|registration|reg\.?)(?:\s+(?:is|was|of))?\s*[:#-]?\s*$/i
+// ₹ / Rs / INR already written, a bare number, or "<n> rupees"; never inside a decimal, a date, a word or a range
+const AMOUNT = /(₹\s?|\b(?:Rs\.?|INR)\s?)?(?<![\w.,:/+-])(\d{4,9})(?!\w|[.,]\d|[-:/])(\s+rupees)?/gi
+
+/** Rupees with Indian digit grouping: 120000 -> "1,20,000". */
+export function inr(n: number): string {
+  return `₹${n.toLocaleString("en-IN")}`
+}
+
+/**
+ * The model writes "14500" and "2027-01-01"; shown as "₹14,500" and "1 Jan 2027". ISO dates always; a bare
+ * 4-9 digit number only when `context` (its sentence and the one before) is about money, and never a year
+ * (1900-2100 with no currency sign) or a number right after "PIN", "account", "phone", "ID"... Display only.
+ */
+export function prettyText(text: string, context = text): string {
+  const dated = text.replace(ISO_DATE, (m, y: string, mo: string, d: string) =>
+    Number(mo) >= 1 && Number(mo) <= 12 ? `${Number(d)} ${MONTHS[Number(mo) - 1]} ${y}` : m)
+  const money = MONEY_CONTEXT.test(context)
+  return dated.replace(AMOUNT, (m, sign: string | undefined, digits: string, rupees: string | undefined, at: number) => {
+    const n = Number(digits)
+    if (sign || rupees) return inr(n)
+    if (!money || NOT_MONEY_BEFORE.test(dated.slice(Math.max(0, at - 24), at))) return m
+    if (digits.length === 4 && n >= 1900 && n <= 2100) return m
+    return inr(n)
+  })
 }
 
 /** "Remember rent amount = 16000, from 2027-01-01?" / "Remember this decision?" for the chip's question. */

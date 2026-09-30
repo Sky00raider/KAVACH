@@ -9,6 +9,7 @@ import {
   footerText,
   formatMs,
   mergeEvents,
+  prettyText,
   saysNotInVault,
   sentenceSpans,
   sourceLabel,
@@ -80,12 +81,12 @@ describe("answerBlocks", () => {
     expect(marked).toEqual(["The landlord is kind."])
   })
 
-  it("reassembles to the original text", () => {
+  it("reassembles to the original text, with amounts shown as rupees", () => {
     const joined = answerBlocks(text, ["uncited_sentence"])
       .flatMap((b) => b.pieces)
       .map((p) => (p.kind === "text" ? p.text : `[${p.n}]`))
       .join("")
-    expect(joined).toBe(text)
+    expect(joined).toBe(text.replace("15000", "₹15,000"))
   })
 })
 
@@ -150,6 +151,38 @@ describe("footerText", () => {
   it("formats durations", () => {
     expect(formatMs(999)).toBe("999 ms")
     expect(formatMs(1000)).toBe("1.0 s")
+  })
+})
+
+describe("prettyText", () => {
+  it.each([
+    // the demo answers as qwen2.5:3b writes them
+    ["Your rent is 14500 today", "Your rent is ₹14,500 today"],
+    ["It changes to 16000 on 2027-01-01", "It changes to ₹16,000 on 1 Jan 2027", "Your rent is 14500."],
+    ["Your salary is 120000 a month", "Your salary is ₹1,20,000 a month"],
+    ["You pay 16000 rupees", "You pay ₹16,000"],
+    ["the deposit is ₹50000", "the deposit is ₹50,000"],
+    ["Rs 62000 was credited", "₹62,000 was credited"],
+    // left alone
+    ["Your rent is ₹14,500 today", "Your rent is ₹14,500 today"],
+    ["The agreement ends in December 2026", "The agreement ends in December 2026"],
+    ["Rent from 2026 onwards", "Rent from 2026 onwards"],
+    ["Your marks total 82.4 percent", "Your marks total 82.4 percent"],
+    ["Pay to account number 48213392", "Pay to account number 48213392"],
+    ["The rent PIN code is 560038", "The rent PIN code is 560038"],
+    ["Ravi's phone is 9845012345", "Ravi's phone is 9845012345"],
+    ["Paid 62,000.00 on 2026-06-01", "Paid 62,000.00 on 1 Jun 2026"],
+    ["Card XXXX4821 was used", "Card XXXX4821 was used"],
+    ["Rent between 14000-16000", "Rent between 14000-16000"],
+  ])("%s", (text, expected, previous = "") => {
+    expect(prettyText(text, `${previous} ${text}`)).toBe(expected)
+  })
+
+  it("is applied per sentence in answer blocks, citations untouched", () => {
+    const [a, b] = answerBlocks("Your rent is 14500 today [2]. It changes to 16000 on 2027-01-01 [3].")
+      .filter((blk) => blk.pieces.some((p) => p.kind === "cite"))
+    expect(a.pieces).toEqual([{ kind: "text", text: "Your rent is ₹14,500 today " }, { kind: "cite", n: 2 }, { kind: "text", text: "." }])
+    expect(b.pieces[0]).toEqual({ kind: "text", text: "It changes to ₹16,000 on 1 Jan 2027 " })
   })
 })
 
