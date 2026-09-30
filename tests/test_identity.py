@@ -13,6 +13,8 @@ from kavach.mock_issuers import issue
 from kavach.models import Claim
 from kavach.trust import audit
 
+REAL_AUDIT_LOG = audit.log  # the vault fixture replaces it
+
 FRIEND = {"name": "Rohan Mehta", "date_of_birth": "2001-11-02", "monthly_income": 95000, "landlord": "Suresh Rao",
           "employer": "Orbit Labs Pvt Ltd", "account": "XXXXXXXX9034"}
 
@@ -149,6 +151,14 @@ def test_friends_signed_statement_is_mismatch_and_backs_nothing(vault):
     # the owner's own 62,000 still answers (what their statement says); 75k is not the friend's 95k
     p = decide.decide(Claim(claim="income", op="ge", value=75000), "fp")
     assert (p.answer_type, p.result) == ("OWNER_ATTESTED", False)
+
+
+def test_ingest_events_carry_holder_status(vault, monkeypatch):
+    monkeypatch.setattr(audit, "log", REAL_AUDIT_LOG)
+    ingest.ingest_file(vault.signed("id_card_signed", "id_card"))
+    ingest.ingest_file(vault.signed("bank_statement_signed", "friend_bank_statement", **FRIEND))
+    events = {e.path: e.holder_status for e in vault.db.ingest_events(0).events}
+    assert events == {"pdfs/id_card.pdf": "verified", "pdfs/friend_bank_statement.pdf": "mismatch"}
 
 
 def test_friends_statement_alone_cannot_confirm(vault):

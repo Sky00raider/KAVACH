@@ -648,7 +648,8 @@ def ingest_events(since: int = 0) -> IngestEvents:
         except ValidationError:
             continue
         events.append(IngestEvent(seq=r["seq"], ts=r["ts"], path=d.path, doc_id=d.doc_id,
-                                  signature_status=d.signature_status, entities_added=d.entities_added,
+                                  signature_status=d.signature_status, holder_status=d.holder_status,
+                                  entities_added=d.entities_added,
                                   facts_added=d.facts_added))
     return IngestEvents(events=events, last_seq=rows[-1]["seq"] if rows else since)
 
