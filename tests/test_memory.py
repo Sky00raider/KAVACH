@@ -64,6 +64,34 @@ def test_a_fact_candidate_must_state_its_value(fresh_db, monkeypatch):
     assert memory.candidates_from_statements([message], message) == []
 
 
+@pytest.mark.parametrize("model_field, value, statement, field, stored", [
+    # what qwen2.5:3b actually named these in eval set E
+    ("monthly_rent", "14500", "My monthly rent is ₹14,500.", "rent_amount", "14500"),
+    ("landlord_name", "Suresh Rao", "My landlord is now Suresh Rao.", "landlord", "Suresh Rao"),
+    ("current_salary", "70000", "My salary went up to ₹70,000 this month.", "monthly_income", "70000"),
+    ("company", "Orbit Labs", "I switched jobs and now work at Orbit Labs.", "employer", "Orbit Labs"),
+    ("Gym Membership Fee!!", "2500", "My gym fee is 2500.", "gym_membership_fee", "2500"),  # not a standard field
+])
+def test_teach_stores_under_the_standard_field(fresh_db, monkeypatch, model_field, value, statement, field, stored):
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field=model_field, value=value))
+    fact = memory.teach(statement).fact
+    assert (fact.field, fact.value) == (field, stored)
+
+
+def test_a_taught_rent_supersedes_the_documents_rent(fresh_db, monkeypatch):
+    db.supersede_and_insert_fact(_fact("rent_amount", "14500", "2026-06-05", source_type="issuer_doc"), "2026-09-30")
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="monthly_rent", value="15000"))
+    result = memory.teach("My monthly rent is now ₹15,000.")
+    assert result.fact.field == "rent_amount" and [f.value for f in result.superseded] == ["14500"]
+
+
+def test_a_value_that_does_not_fit_a_standard_field_is_refused(fresh_db, monkeypatch):
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="rent", value="going up"))
+    with pytest.raises(ValueError):
+        memory.teach("My rent is going up.")
+    assert db.list_facts() == []
+
+
 def test_teach_cleans_a_messy_field_name(fresh_db, monkeypatch):
     monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="Gym Membership Fee!!", value="2500"))
     result = memory.teach("My gym fee is 2500.")

@@ -78,6 +78,9 @@ def model(monkeypatch):
     ("Did she pass?", _Mapped(claim="result"), Claim(claim="result", op="is", value="pass", issuer_claim="result_pass")),
     ("Which board?", _Mapped(claim="board"), Claim(claim="board", op="is", issuer_claim="board")),
     ("Is her board CBSE?", _Mapped(claim="board", board_name="cbse"), Claim(claim="board", op="eq", value="cbse")),
+    # eval b06: qwen2.5:3b maps a %-less "score at least 75" to result + threshold; the % makes it percentage
+    ("Did the candidate score at least 75% in their exam?", _Mapped(claim="result", threshold=75),
+     Claim(claim="percentage", op="ge", value=75, issuer_claim="percentage_ge_75")),
 ])
 def test_valid_mappings_get_op_and_issuer_claim_from_code(model, question, mapped, expected):
     model.reply = mapped
@@ -102,6 +105,8 @@ def test_valid_mappings_get_op_and_issuer_claim_from_code(model, question, mappe
     ("Did she score over 75%?", _Mapped(claim="result")),                 # a percent question is percentage
     ("Did she score 75 percent?", _Mapped(claim="income", threshold=75)),
     ("Did she pass class 12?", _Mapped(claim="result")),                  # result takes no number
+    ("Did she score at least 75% in the exam?", _Mapped(claim="result", threshold=90)),  # not the number asked
+    ("Did she score at least 75 in the exam?", _Mapped(claim="result", threshold=75)),  # no %: not a percentage
 ])
 def test_bad_mappings_are_unsupported(model, question, mapped):
     model.reply = mapped

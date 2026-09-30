@@ -198,6 +198,16 @@ def test_facts_for_document_dates_a_chat_window_from_its_locator(fresh_db, monke
     assert fresh_db.list_facts()[0].valid_from == "2026-09-18"
 
 
+@pytest.mark.parametrize("name, canonical", [
+    ("monthly_rent", "rent_amount"), ("rent", "rent_amount"), ("current_rent", "rent_amount"),
+    ("salary", "monthly_income"), ("new_salary", "monthly_income"), ("monthly_income", "monthly_income"),
+    ("landlord_name", "landlord"), ("company_name", "employer"), ("dob", "date_of_birth"),
+    ("lease_end_date", "agreement_end_date"), ("gym_membership_fee", "gym_membership_fee"),
+])
+def test_canonical_field(name, canonical):
+    assert extract.canonical_field(name) == canonical
+
+
 def test_placeholder_and_contact_details_are_not_names():
     assert extract.clean_value("landlord", "unknown") is None
     assert extract.clean_value("landlord", "N/A") is None

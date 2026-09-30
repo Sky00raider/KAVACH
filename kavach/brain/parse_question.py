@@ -101,6 +101,11 @@ def _claim(mapped: _Mapped, text: str, percent: bool = False) -> Claim:
     """Validate the model's proposal against the normalised question (`percent`: the original had `%` or
     "percent"); set op and issuer_claim in code."""
     name = mapped.claim
+    if percent and name == "result" and isinstance(mapped.threshold, int):
+        # "Did they score at least 75% in the exam?": the % sign is gone before the model sees it, and qwen2.5:3b
+        # read "score at least 75" as the pass/fail result with a threshold (eval b06/b07). A thresholded score
+        # with a percent sign can only be the percentage claim; the threshold is still checked below.
+        name = "percentage"
     if percent and name != "percentage":
         return Claim(claim="unsupported")
     if name in NUMERIC_CLAIMS:

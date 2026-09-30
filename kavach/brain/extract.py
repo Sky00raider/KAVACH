@@ -85,6 +85,38 @@ def clean_field_name(raw: str) -> str | None:
 _CHAT_STAMP = re.compile(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]")  # ingest.WaMessage.line() prefix
 
 
+# What the model calls a standard field when the owner teaches it (eval set E, qwen2.5:3b: "My monthly rent is
+# ₹14,500" -> monthly_rent, "My landlord is now Suresh Rao" -> landlord_name). A taught value under another name
+# never supersedes the document's fact, so the memory story breaks.
+FIELD_SYNONYMS: dict[str, frozenset[str]] = {
+    "rent_amount": frozenset({"rent", "monthly_rent", "rent_per_month", "house_rent", "flat_rent", "rent_monthly",
+                              "monthly_rent_amount", "rent_payment"}),
+    "monthly_income": frozenset({"income", "salary", "monthly_salary", "take_home", "take_home_pay", "net_salary",
+                                 "salary_amount", "monthly_pay", "pay", "monthly_income_amount"}),
+    "landlord": frozenset({"landlord_name", "landlady", "house_owner", "owner_name", "flat_owner"}),
+    "employer": frozenset({"employer_name", "company", "company_name", "workplace", "job", "work", "office",
+                           "organisation", "organization", "work_place", "employment"}),
+    "date_of_birth": frozenset({"dob", "birth_date", "birthdate", "birthday"}),
+    "agreement_end_date": frozenset({"lease_end", "lease_end_date", "agreement_end", "rent_agreement_end",
+                                     "rent_agreement_end_date", "rental_agreement_end_date", "contract_end_date"}),
+    "emi_date": frozenset({"emi_day", "emi_due_date", "loan_emi_date", "emi_due_day"}),
+}
+_FIELD_OF = {syn: field for field, syns in FIELD_SYNONYMS.items() for syn in syns}
+_FIELD_NOISE = re.compile(r"^(?:my|current|new|latest|updated|present)_|_(?:now|new|current|updated)$")
+
+
+def canonical_field(name: str) -> str:
+    """A cleaned field name mapped onto the standard one it means ("monthly_rent" -> "rent_amount", "current_salary"
+    -> "monthly_income"); any other name is returned unchanged."""
+    bare = _FIELD_NOISE.sub("", name)
+    for candidate in (name, bare):
+        if candidate in EXTRACTED_FIELDS:
+            return candidate
+        if candidate in _FIELD_OF:
+            return _FIELD_OF[candidate]
+    return name
+
+
 def grounding(text: str, quote: str | None, value: str) -> Confidence:
     """"high" when `quote` is in `text` (`quote_in_text`) and states the value: its digits (numeric values; an
     ISO date value also counts when the quote writes that date another way, "31 December 2026") or the value
