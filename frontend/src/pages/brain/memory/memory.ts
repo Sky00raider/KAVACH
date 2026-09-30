@@ -153,6 +153,70 @@ export function periodText(v: Pick<FactVersion, "valid_from" | "valid_to">): str
   return `${formatDate(v.valid_from)} – ${formatDate(v.valid_to)}`
 }
 
+// --- timeline bar ---------------------------------------------------------------------------------------------
+
+export type SegmentKind = "past" | "current" | "scheduled"
+
+export interface Segment {
+  fact: FactVersion
+  kind: SegmentKind
+  from: string
+  /** Where the segment ends on the bar (the next value's start, or the bar's end for the last one). */
+  to: string
+  left: number
+  width: number
+}
+
+export interface Timeline {
+  start: string
+  end: string
+  segments: Segment[]
+  /** Where today sits, 0-100. */
+  today: number
+  ticks: { label: string; pct: number }[]
+}
+
+const DAY = 86_400_000
+const toMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`)
+const toIso = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+const MIN_SPAN_DAYS = 90
+const TAIL_DAYS = 45
+
+/**
+ * The field's values as consecutive segments on one bar: past values, the one in force, and scheduled changes,
+ * each running until the next one starts. The bar spans the first value's start to well past the later of today
+ * and the last change (half the history again, at least TAIL_DAYS), so the last value has room for its label. Null when there is nothing to show over time (a single value, no history, no change).
+ */
+export function timelineOf(g: FieldGroup, today = todayIso()): Timeline | null {
+  const shown = [...g.past, ...(g.current ? [g.current] : []), ...g.scheduled]
+    .filter((v) => v.valid_from)
+    .sort((a, b) => a.valid_from!.localeCompare(b.valid_from!))
+  if (shown.length < 2) return null
+  const first = toMs(shown[0].valid_from!)
+  const lastStart = Math.max(toMs(shown[shown.length - 1].valid_from!), toMs(today))
+  const history = Math.max(lastStart - first, MIN_SPAN_DAYS * DAY)
+  // the last value runs on from its start: give it room to read (a 15% tail left "₹1…" for the coming rent)
+  const end = first + history + Math.max(history * 0.5, TAIL_DAYS * DAY)
+  const span = end - first
+  const pct = (ms: number) => Math.min(100, Math.max(0, ((ms - first) / span) * 100))
+  const segments: Segment[] = shown.map((v, i) => {
+    const from = toMs(v.valid_from!)
+    const next = i + 1 < shown.length ? toMs(shown[i + 1].valid_from!) : end
+    const closed = v.valid_to ? toMs(v.valid_to) : Infinity
+    const to = Math.max(from, Math.min(next, closed))
+    const kind: SegmentKind = v === g.current ? "current" : g.scheduled.includes(v) ? "scheduled" : "past"
+    return { fact: v, kind, from: v.valid_from!, to: toIso(to), left: pct(from), width: Math.max(pct(to) - pct(from), 0.8) }
+  })
+  const ticks = [{ label: shortMonth(toIso(first)), pct: 0 }, { label: shortMonth(toIso(end)), pct: 100 }]
+  return { start: toIso(first), end: toIso(end), segments, today: pct(toMs(today)), ticks }
+}
+
+/** `2027-01-01` -> "Jan 2027". */
+export function shortMonth(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})/)
+  return m ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : iso
+}
+
 /** Search over label, field name and every shown value. */
 export function matchesFilter(g: FieldGroup, q: string): boolean {
   const s = q.trim().toLowerCase()

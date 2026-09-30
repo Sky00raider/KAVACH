@@ -20,6 +20,7 @@ import {
   periodText,
   sourceView,
   taughtText,
+  timelineOf,
   todayIso,
   untilText,
   type FieldGroup,
@@ -98,6 +99,42 @@ function LowConfidence({ v }: { v: FactVersion }) {
   return <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[11px] font-medium text-warning">unsure</span>
 }
 
+const SEGMENT_STYLE = {
+  past: "border-border bg-muted text-muted-foreground",
+  current: "border-primary/60 bg-primary/20 text-foreground font-medium",
+  scheduled: "border-warning/60 bg-warning/15 text-warning font-medium",
+} as const
+
+/** The field's values over time on one bar, with a marker for today (`timelineOf`). */
+function TimelineBar({ g }: { g: FieldGroup }) {
+  const t = useMemo(() => timelineOf(g), [g])
+  if (!t) return null
+  return (
+    <div className="pt-4" aria-label={`${fieldLabel(g.field)} over time`}>
+      <div className="relative h-6">
+        {t.segments.map((s) => (
+          <div
+            key={s.fact.fact_id}
+            title={`${formatValue(g.field, s.fact.value)} · ${formatDate(s.from)}${s.kind === "scheduled" ? " (coming)" : ""}`}
+            className={cn("absolute top-0 h-full truncate rounded-[5px] border px-1.5 text-[11px] leading-[22px] tabular-nums",
+                          SEGMENT_STYLE[s.kind])}
+            style={{ left: `${s.left}%`, width: `calc(${s.width}% - 2px)` }}
+          >
+            {formatValue(g.field, s.fact.value)}
+          </div>
+        ))}
+        <div className="pointer-events-none absolute -top-3 bottom-[-4px] w-px bg-foreground/70" style={{ left: `${t.today}%` }}>
+          <span className="absolute -top-1 left-1 text-[10px] leading-none whitespace-nowrap text-foreground/80">Today</span>
+        </div>
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
+        <span>{t.ticks[0].label}</span>
+        <span>{t.ticks[1].label}</span>
+      </div>
+    </div>
+  )
+}
+
 function FieldCard({ g, docs, fresh }: { g: FieldGroup; docs: DocIndex; fresh: Set<string> }) {
   const [open, setOpen] = useState(false)
   const doc = (v: FactVersion) => (v.doc_id ? docs.get(v.doc_id) : undefined)
@@ -113,6 +150,7 @@ function FieldCard({ g, docs, fresh }: { g: FieldGroup; docs: DocIndex; fresh: S
         <h2 className="text-sm font-medium">{fieldLabel(g.field)}</h2>
         <span className="font-mono text-[11px] text-muted-foreground">{g.field}</span>
       </header>
+      <TimelineBar g={g} />
 
       {g.current ? (
         <div className="space-y-1.5">

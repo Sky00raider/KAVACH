@@ -7,8 +7,10 @@ import {
   groupTimeline,
   matchesFilter,
   periodText,
+  shortMonth,
   sourceView,
   taughtText,
+  timelineOf,
   todayIso,
   untilText,
 } from "./memory"
@@ -111,6 +113,41 @@ describe("sourceView", () => {
     expect(sourceView(chat, doc("chat", "chats/landlord.txt")).label).toBe("WhatsApp chat")
     expect(sourceView(note, doc("note", "notes/budget.md")).label).toBe("Your notes")
     expect(sourceView(fv("t", "1", { source_type: "owner_stated" }))).toEqual({ label: "You told me", tone: "owner" })
+  })
+})
+
+describe("timelineOf", () => {
+  it("lays out past, current and scheduled values on one bar with today marked", () => {
+    const [rent] = groupTimeline([old, bank, inbox, chat, note], TODAY)
+    const t = timelineOf(rent, TODAY)!
+    expect(t.segments.map((s) => [s.fact.fact_id, s.kind, s.from, s.to])).toEqual([
+      ["f_old", "past", "2025-06-01", "2026-06-05"],
+      ["f_bank", "current", "2026-06-05", "2027-01-01"],
+      ["f_inbox", "scheduled", "2027-01-01", t.end],
+    ])
+    // supporting sources are not segments of their own
+    expect(t.segments.some((s) => s.fact.fact_id === "f_chat")).toBe(false)
+    const [a, b, c] = t.segments
+    expect(a.left).toBe(0)
+    expect(b.left).toBeCloseTo(a.left + a.width, 5)
+    expect(c.left + c.width).toBeCloseTo(100, 5)
+    expect(t.today).toBeGreaterThan(b.left)
+    expect(t.today).toBeLessThan(c.left)
+    expect(t.ticks.map((x) => x.label)).toEqual(["Jun 2025", shortMonth(t.end)])
+  })
+
+  it("is null for a field with a single value", () => {
+    const [ll] = groupTimeline([landlord], TODAY)
+    expect(timelineOf(ll, TODAY)).toBeNull()
+  })
+
+  it("gives a short history a minimum span, so today never sits on the edge", () => {
+    const now = fv("f_n", "14500", { valid_from: "2026-09-29", current: true })
+    const soon = fv("f_s", "16000", { valid_from: "2026-10-01" })
+    const t = timelineOf(groupTimeline([now, soon], TODAY)[0], TODAY)!
+    expect(t.today).toBeGreaterThan(0)
+    expect(t.today).toBeLessThan(10)
+    expect(t.segments[1].width).toBeGreaterThan(50)
   })
 })
 
