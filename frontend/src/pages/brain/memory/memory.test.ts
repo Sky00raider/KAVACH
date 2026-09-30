@@ -5,6 +5,7 @@ import {
   formatDate,
   formatValue,
   groupTimeline,
+  ownersVersions,
   matchesFilter,
   periodText,
   shortMonth,
@@ -102,6 +103,21 @@ describe("formatting", () => {
     expect(untilText("2026-10-01", TODAY)).toBe("tomorrow")
     expect(untilText("2026-10-12", TODAY)).toBe("in 12 days")
     expect(todayIso(new Date(2026, 8, 30, 23, 59))).toBe("2026-09-30")
+  })
+})
+
+describe("ownersVersions", () => {
+  it("drops values read from a signed document in someone else's name", () => {
+    const docs = new Map([
+      ["d_own", { signature_status: "issuer_signed", holder_status: "verified" }],
+      ["d_friend", { signature_status: "issuer_signed", holder_status: "mismatch" }],
+      ["d_note", { signature_status: "unsigned", holder_status: null }],
+    ] as const)
+    const own = fv("a", "62000", { doc_id: "d_own" })
+    const note = fv("b", "62000", { doc_id: "d_note" })
+    const taught = fv("c", "60000", { doc_id: null, source_type: "owner_stated" })
+    const friend = fv("d", "95000", { doc_id: "d_friend", source_type: "extracted", confidence: "low" })
+    expect(ownersVersions([own, note, taught, friend], new Map(docs))).toEqual({ mine: [own, note, taught], hidden: 1 })
   })
 })
 

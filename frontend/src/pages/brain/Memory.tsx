@@ -16,6 +16,7 @@ import {
   formatDate,
   formatValue,
   groupTimeline,
+  ownersVersions,
   matchesFilter,
   periodText,
   sourceView,
@@ -310,8 +311,9 @@ export default function Memory() {
   }, [timeline.data])
 
   const today = todayIso()
-  const groups = useMemo(() => groupTimeline(timeline.data ?? [], today), [timeline.data, today])
   const docs: DocIndex = useMemo(() => new Map((documents.data ?? []).map((d) => [d.doc_id, d])), [documents.data])
+  const owners = useMemo(() => ownersVersions(timeline.data ?? [], docs), [timeline.data, docs])
+  const groups = useMemo(() => groupTimeline(owners.mine, today), [owners, today])
   const shown = groups.filter((g) => matchesFilter(g, query))
   const coming = groups.reduce((n, g) => n + g.scheduled.length, 0)
   const changed = groups.reduce((n, g) => n + g.past.length, 0)
@@ -331,6 +333,11 @@ export default function Memory() {
             {coming > 0 && <Stat>{coming} change{coming === 1 ? "" : "s"} coming</Stat>}
             {changed > 0 && <Stat>{changed} earlier value{changed === 1 ? "" : "s"}</Stat>}
           </>
+        )}
+        {owners.hidden > 0 && (
+          <span className="text-xs text-muted-foreground" title="Read from issuer-signed documents that are not in your name">
+            {owners.hidden} value{owners.hidden === 1 ? "" : "s"} from documents in someone else's name not shown
+          </span>
         )}
       </div>
 

@@ -40,6 +40,19 @@ function supportRoot(v: FactVersion, byId: Map<string, FactVersion>): FactVersio
   }
 }
 
+/**
+ * Splits off versions read from an issuer-signed document in someone else's name (CONTRACT §6.6): they are not
+ * facts about the owner, so they never appear as a value, an earlier value or a supporting source.
+ */
+export function ownersVersions(versions: FactVersion[], docs: Map<string, Pick<Document, "signature_status" | "holder_status">>):
+  { mine: FactVersion[]; hidden: number } {
+  const mine = versions.filter((v) => {
+    const d = v.doc_id ? docs.get(v.doc_id) : undefined
+    return !holderWarning(d?.signature_status, d?.holder_status)
+  })
+  return { mine, hidden: versions.length - mine.length }
+}
+
 export function groupTimeline(versions: FactVersion[], today = todayIso()): FieldGroup[] {
   const byId = new Map(versions.map((v) => [v.fact_id, v]))
   const groups = new Map<string, FieldGroup>()
