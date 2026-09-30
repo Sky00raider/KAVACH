@@ -25,6 +25,7 @@ export const chatStreamEvents: { event: string; data: unknown }[] = chatStreamJs
 export const GET_FIXTURES: [RegExp, string][] = [
   [/^\/api\/health$/, "health"],
   [/^\/api\/documents$/, "documents"],
+  [/^\/api\/identity$/, "identity"],
   [/^\/api\/entities$/, "entities"],
   [/^\/api\/facts$/, "facts"],
   [/^\/api\/graph$/, "graph"],

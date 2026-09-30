@@ -36,6 +36,8 @@ FieldName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]*(_[a-z0-9]
 SourceType = Literal["issuer_doc", "extracted", "owner_stated"]
 Confidence = Literal["high", "low"]
 SignatureStatus = Literal["issuer_signed", "unsigned", "invalid"]
+# §6.6: whether an issuer_signed document is in the owner's name (null on documents that are not issuer_signed)
+HolderStatus = Literal["verified", "mismatch", "unknown"]
 DocSource = Literal["pdf", "note", "chat"]
 
 OWNER_ENTITY_ID = "e_owner"
@@ -118,6 +120,7 @@ class Document(Model):
     text_hash: str | None = None
     ingested_at: str
     removed_at: str | None = None
+    holder_status: HolderStatus | None = None
 
 
 class Chunk(Model):
@@ -141,6 +144,18 @@ class SignatureResult(Model):
     detail: str | None = None
 
 
+class Identity(Model):
+    """GET /api/identity: the §6.6 identity anchor, masked. Never the full name, date of birth or ID number."""
+
+    status: Literal["verified", "not_verified"]
+    source: Literal["signed_id", "config"]
+    issuer: str | None = None
+    name_initials: str
+    birth_year: int | None = None
+    doc_id: str | None = None
+    verified_at: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Ingestion (§9)
 # ---------------------------------------------------------------------------
@@ -151,6 +166,7 @@ class IngestResult(Model):
     doc_id: str
     source: DocSource
     signature_status: SignatureStatus
+    holder_status: HolderStatus | None = None
     chunks_added: int = 0
     entities_added: int = 0
     facts_added: int = 0
@@ -170,6 +186,7 @@ class IngestEvent(Model):
     path: str
     doc_id: str
     signature_status: SignatureStatus
+    holder_status: HolderStatus | None = None
     entities_added: int
     facts_added: int
 
@@ -630,6 +647,7 @@ class IngestedDetail(Model):
     path: str
     doc_id: str
     signature_status: SignatureStatus
+    holder_status: HolderStatus | None = None  # absent in entries written before §6.6
     chunks_added: int
     entities_added: int
     facts_added: int

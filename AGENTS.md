@@ -33,7 +33,7 @@ Each code track builds the UI pages for its own features. Shared UI (layout, sid
 
 ## Conventions
 - All request/response and cross-module types live in `kavach/models.py` (Pydantic). Import them; never redefine a shape locally.
-- IDs: `{prefix}_{uuid4().hex[:10]}` with prefixes `d` doc, `c` chunk, `e` entity, `x` edge, `f` fact, `cr` credential, `rq` request, `t` task, `mc` memory candidate.
+- IDs: `{prefix}_{uuid4().hex[:10]}` with prefixes `d` doc, `c` chunk, `e` entity, `x` edge, `f` fact, `cr` credential, `rq` request, `t` task, `mc` memory candidate, `id` identity anchor.
 - Money is integer rupees. Dates are ISO `YYYY-MM-DD`; timestamps are UTC ISO 8601 with `Z`.
 - LLM calls: Ollama structured output (`format` = JSON schema from the Pydantic model), `temperature: 0`. Validate the result with Pydantic; on failure, retry once, then return a typed error.
 - DB access only through helpers in `kavach/db.py`.

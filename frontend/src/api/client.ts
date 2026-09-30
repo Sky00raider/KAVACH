@@ -12,6 +12,8 @@ type R = RequesterComponents["schemas"]
 // Generated types (npm run gen:types), re-exported under their schema names.
 export type Health = S["Health"]
 export type Document = S["Document"]
+export type HolderStatus = NonNullable<Document["holder_status"]>
+export type Identity = S["Identity"]
 export type Entity = S["Entity"]
 export type Fact = S["Fact"]
 export type FactVersion = S["FactVersion"]
@@ -135,6 +137,7 @@ export const api = {
   ingestSync: () => post<IngestSyncOut>("/api/ingest/sync"),
   ingestEvents: (since = 0) => get<IngestEvents>("/api/ingest/events", { since }),
   documents: () => get<Document[]>("/api/documents"),
+  identity: () => get<Identity>("/api/identity"),
   entities: (type?: string) => get<Entity[]>("/api/entities", { type }),
   facts: (opts: { field?: string; current?: boolean } = {}) => get<Fact[]>("/api/facts", opts),
   graph: (opts: { entity_id?: string; hops?: number } = {}) => get<Graph>("/api/graph", opts),

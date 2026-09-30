@@ -15,6 +15,7 @@ FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "api"
 SCHEMAS = {
     "health": m.Health,
     "documents": list[m.Document],
+    "identity": m.Identity,
     "entities": list[m.Entity],
     "facts": list[m.Fact],
     "graph": m.Graph,

@@ -6,6 +6,7 @@
       "path": "pdfs/bank_statement_signed.pdf",
       "doc_id": "d_03a1b2c3d4",
       "signature_status": "issuer_signed",
+      "holder_status": "verified",
       "entities_added": 2,
       "facts_added": 2
     },
@@ -15,6 +16,7 @@
       "path": "pdfs/rent_agreement.pdf",
       "doc_id": "d_7e21a0c9b4",
       "signature_status": "unsigned",
+      "holder_status": null,
       "entities_added": 3,
       "facts_added": 3
     },
@@ -24,6 +26,7 @@
       "path": "pdfs/marksheet_signed.pdf",
       "doc_id": "d_5b6c7d8e9f",
       "signature_status": "issuer_signed",
+      "holder_status": "verified",
       "entities_added": 1,
       "facts_added": 3
     },
@@ -33,6 +36,7 @@
       "path": "pdfs/id_card_signed.pdf",
       "doc_id": "d_1c2d3e4f5a",
       "signature_status": "issuer_signed",
+      "holder_status": "verified",
       "entities_added": 0,
       "facts_added": 1
     },
@@ -42,6 +46,7 @@
       "path": "pdfs/bank_statement_TAMPERED.pdf",
       "doc_id": "d_8f7e6d5c4b",
       "signature_status": "invalid",
+      "holder_status": null,
       "entities_added": 0,
       "facts_added": 0
     },
@@ -51,6 +56,7 @@
       "path": "notes/flat-move-2026.md",
       "doc_id": "d_9a8b7c6d5e",
       "signature_status": "unsigned",
+      "holder_status": null,
       "entities_added": 4,
       "facts_added": 0
     },
@@ -60,6 +66,7 @@
       "path": "notes/rent-renewal.md",
       "doc_id": "d_4f3e2d1c0b",
       "signature_status": "unsigned",
+      "holder_status": null,
       "entities_added": 3,
       "facts_added": 0
     },
@@ -69,9 +76,20 @@
       "path": "chats/landlord.txt",
       "doc_id": "d_2b3c4d5e6f",
       "signature_status": "unsigned",
+      "holder_status": null,
       "entities_added": 2,
       "facts_added": 1
+    },
+    {
+      "seq": 9,
+      "ts": "2026-09-30T11:05:00Z",
+      "path": "pdfs/friend_bank_statement.pdf",
+      "doc_id": "d_9f8e7d6c5b",
+      "signature_status": "issuer_signed",
+      "holder_status": "mismatch",
+      "entities_added": 1,
+      "facts_added": 3
     }
   ],
-  "last_seq": 8
+  "last_seq": 9
 }

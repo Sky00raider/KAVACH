@@ -128,12 +128,14 @@ Never disclosable: name, DOB, account numbers, address, exact amounts, document 
 | `CANNOT_CONFIRM` | No grounded `issuer_doc` fact and no credential | Automatic |
 | `REFUSED` | Unsupported claim, not disclosable, or blocked by ledger | Automatic |
 
+A grounded `issuer_doc` fact is current, high-confidence and on `e_owner`, and its document is `issuer_signed` with `holder_status` `verified` (§6.6).
+
 ### 5.4 Decision rules (`brain/decide.py`, pure code)
 ```
 claim unsupported or not disclosable                          -> REFUSED
 no grounded issuer_doc fact and no credential for the claim   -> CANNOT_CONFIRM
 issuer_claim set and wallet has an unused copy                -> ISSUER_PROOF, result from credential
-else grounded issuer_doc fact exists                          -> ledger.check(); if blocked -> REFUSED
+else grounded issuer_doc fact exists (holder verified, §6.6)  -> ledger.check(); if blocked -> REFUSED
                                                                  else OWNER_ATTESTED, result = python comparison
 favourable result   -> proposal to owner: Approve / Deny
 unfavourable result -> proposal to owner: Answer / Decline (Decline -> DECLINED)
@@ -190,6 +192,18 @@ Issuers sign the `pdf_text_hash` of the **generated PDF**: render the PDF, extra
 
 The signature is stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":"<b64>"}`. `issuer_check.verify_pdf()` returns `SignatureResult {status, iss, detail}` where `status` is `issuer_signed` | `unsigned` | `invalid` (sig present but fails, e.g. tampered), `iss` is the claimed issuer or null, `detail` a short reason or null.
 
+### 6.6 Holder check (`brain/identity.py`)
+A signature proves who issued a document, not whose it is. The **identity anchor** is the owner's name and date of birth:
+- `signed_id`: read in code (`Name:` / `Date of birth:`) from the first `issuer_signed` `id_card` of an identity issuer (`mock_govt`) ingested while no anchor exists. Pinned: a later ID card in another name is holder-checked like any document and never re-anchors. When the anchor's document is removed, the next live identity-issuer ID card whose `holder_status` is `verified` takes over, else `config`.
+- `config`: no signed ID: `config.OWNER_NAME`, no date of birth; the identity is `not_verified`.
+
+`documents.holder_status` is set only for `issuer_signed` documents (null otherwise), against the current anchor:
+- `verified`: the anchor name appears, and a date of birth the document states (after a date-of-birth label) equals the anchor's (not checked when the anchor has none). The name matches when every word of the normalised name (NFKC, casefold, letters only) is a whole word within the first *n* + 2 words (*n* = words in the name, any order) after a holder label (`Account holder:`, `Candidate:`, `Name:`...); anywhere in the text when the document has no holder label.
+- `mismatch`: the name is not there, or the date of birth differs.
+- `unknown`: a date-of-birth label whose date cannot be read.
+
+Facts from a signed document that is not `verified` are stored `extracted` with `confidence` `low`, never `issuer_doc`, and its bank rows give no `PAID` edges. A change of anchor rechecks every signed document; one whose `holder_status` changes is re-extracted.
+
 ## 7. Cross-module Python interfaces
 
 Types come from `kavach/models.py`. Anything not listed is private to its module.
@@ -209,6 +223,8 @@ parse_question.parse(question: str) -> Claim
 decide.decide(claim: Claim, requester_fp: str) -> Proposal
 decide.claims() -> ClaimsOut                         # §5.1 names + issuer-provability, never values
 planner.plan(instruction: str) -> Plan                # validated, never executes
+identity.current() -> Identity                        # the §6.6 anchor, masked
+identity.holder_status(text: str, doc_type: str | None) -> HolderStatus   # against the current anchor
 
 # trust (TRUST)
 crypto.canonical(obj) -> bytes; crypto.sign(priv, obj) -> str; crypto.verify(pub, obj, sig) -> bool
@@ -235,7 +251,7 @@ Shapes used above that are not defined elsewhere in this contract:
 
 | Type | Fields |
 |---|---|
-| `IngestResult` | `path, doc_id, source ("pdf"\|"note"\|"chat"), signature_status, chunks_added, entities_added, facts_added` |
+| `IngestResult` | `path, doc_id, source ("pdf"\|"note"\|"chat"), signature_status, holder_status, chunks_added, entities_added, facts_added` |
 | `ScoredChunk` | `chunk_id, doc_id, locator, text, score` |
 | `ChatTurn` | `role ("user"\|"assistant"), content` |
 | `ChatResult` | the §10 `final` data plus `entities_used: [entity_id]` |
@@ -247,13 +263,17 @@ Shapes used above that are not defined elsewhere in this contract:
 | `ToolResult` | `tool, ok: bool, output_path: str\|null, detail: str\|null`; `output_path` is relative to the runtime root (`outbox/...`, `vault/notes/...`), unlike `documents.path` |
 | `Task` | `task_id, instruction, plan: Plan, status, result: [ToolResult]\|null, created_at, decided_at` |
 | `Document` | the `documents` row (§8); `path` is vault-relative |
+| `HolderStatus` | `"verified"\|"mismatch"\|"unknown"` (§6.6); `holder_status` fields are this or null (not `issuer_signed`) |
+| `Identity` | `status ("verified"\|"not_verified"), source ("signed_id"\|"config"), issuer: str\|null, name_initials, birth_year: int\|null, doc_id: str\|null, verified_at: str\|null`; never the full name, date of birth or ID number |
 | `Entity` | `entity_id, type, name, attrs: {str: str}` |
 
 ## 8. SQLite schema
 
 ```sql
 CREATE TABLE documents (doc_id TEXT PRIMARY KEY, path TEXT UNIQUE, source TEXT, doc_type TEXT,
-  signature_status TEXT, iss TEXT, text_hash TEXT, ingested_at TEXT, removed_at TEXT);
+  signature_status TEXT, iss TEXT, text_hash TEXT, ingested_at TEXT, removed_at TEXT, holder_status TEXT);
+CREATE TABLE identity (identity_id TEXT PRIMARY KEY, source TEXT, issuer TEXT, name TEXT, dob TEXT,
+  last4 TEXT, doc_id TEXT, verified_at TEXT, removed_at TEXT);
 CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, doc_id TEXT, locator TEXT, text TEXT, embedding BLOB);
 CREATE TABLE entities (entity_id TEXT PRIMARY KEY, type TEXT, name TEXT, norm_name TEXT, attrs_json TEXT);
 CREATE TABLE edges (edge_id TEXT PRIMARY KEY, src TEXT, rel TEXT, dst TEXT,
@@ -276,6 +296,8 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
   detail_json TEXT, prev_hash TEXT, entry_hash TEXT);
 ```
 - `documents.path`: relative to `VAULT_DIR`, forward slashes (`pdfs/rent_agreement.pdf`), same as `/api/ingest` and the `ingested` audit detail
+- `documents.holder_status`: `verified` | `mismatch` | `unknown` | NULL (§6.6); `init_db` adds the column to an older database
+- `identity`: one row per anchor ever set (§6.6), id prefix `id`; the live anchor is the newest row with `removed_at` NULL. `source`: `signed_id`; `last4` is reserved (null). Owner-only; never returned unmasked by any route
 - `memory_candidates.kind`: `fact` | `decision`; `status`: `pending` | `accepted` | `discarded`
 - `requesters.status`: `pending` | `paired` | `blocked`
 - `requests.status`: `pending_pairing` | `pending` | `done`; `channel`: `web` | `mcp`
@@ -296,8 +318,9 @@ Owner routes and token injection also require the `Host` header to be `localhost
 | GET | `/api/health` | | `{ollama: bool, models: {llm, fast, embed} -> configured name, model_loaded: {llm, fast, embed} -> bool (resident in Ollama now), db: bool, vault_dir, local_inference: bool}` (`local_inference`: the host of `OLLAMA_URL` is loopback, i.e. models run on this machine) |
 | POST | `/api/ingest` | multipart file | copies into `vault/` (watcher ingests) -> `{path}` (vault-relative). `.pdf` -> `pdfs/`, `.md` -> `notes/`, `.txt` -> `chats/`, else `415`. Filename is reduced to its basename; empty, `.`/`..`, absolute or drive paths -> `400` (the multipart parser may already reduce a Windows full path to its basename, which is then stored as such). An existing file is never overwritten: same bytes -> `200` with its path, different bytes -> `409` |
 | POST | `/api/ingest/sync` | | rescan -> `{ingested:[IngestResult]}` |
-| GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
+| GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, holder_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
 | GET | `/api/documents` | | `[Document]` |
+| GET | `/api/identity` | | `Identity` (§6.6, §7): the anchor, masked |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
 | GET | `/api/facts` | `?field=&current=true` (`current` defaults to `true`; `false` includes superseded facts) | `[Fact]` |
 | GET | `/api/graph` | `?entity_id=&hops=1` | `{nodes:[{id,type,name}], edges:[{id,src,dst,rel,valid_from,valid_to,source_chunk_id,doc_id}]}`; `doc_id` is the document of `source_chunk_id`, `null` when that chunk no longer exists (an edge closed by a changed or removed document) |
@@ -403,7 +426,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 `document_removed`: logged by `ingest.remove_file` when a known, not-yet-removed document's file is deleted. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id}` with `path` vault-relative.
 
-`ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, chunks_added, entities_added, facts_added}` with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
+`ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, holder_status, chunks_added, entities_added, facts_added}` (`holder_status` absent in entries written before it: read as null) with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 
 ## 14. Frontend contract
 
@@ -420,4 +443,4 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 15. Fixtures
 
-`fixtures/api/<name>.json` for: `health`, `documents`, `entities`, `facts`, `graph`, `chunk` (for citation popovers), `chat`, `chat_stream` (`.jsonl` of events), `memory_timeline`, `queue`, `wallet`, `tasks`, `task_planned`, `audit`, `ingest_events`, `outbox`, `r_identity`, `r_requests`, `r_storage`. A pytest test validates every fixture against its Pydantic model, so fixtures can't drift from the contract.
+`fixtures/api/<name>.json` for: `health`, `documents`, `identity`, `entities`, `facts`, `graph`, `chunk` (for citation popovers), `chat`, `chat_stream` (`.jsonl` of events), `memory_timeline`, `queue`, `wallet`, `tasks`, `task_planned`, `audit`, `ingest_events`, `outbox`, `r_identity`, `r_requests`, `r_storage`. A pytest test validates every fixture against its Pydantic model, so fixtures can't drift from the contract.

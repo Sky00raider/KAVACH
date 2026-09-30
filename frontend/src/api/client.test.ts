@@ -40,6 +40,7 @@ describe("fixture mode", () => {
   it("answers GET routes from their fixtures", async () => {
     expect(await api.health()).toEqual(fixtures.health)
     expect(await api.documents()).toEqual(fixtures.documents)
+    expect(await api.identity()).toEqual(fixtures.identity)
     expect(await api.entities("person")).toEqual(fixtures.entities)
     expect(await api.facts({ current: false })).toEqual(fixtures.facts)
     expect(await api.graph({ entity_id: "e_owner", hops: 2 })).toEqual(fixtures.graph)

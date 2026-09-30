@@ -92,6 +92,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Identity Anchor */
+        get: operations["identity_anchor_api_identity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/entities": {
         parameters: {
             query?: never;
@@ -793,6 +810,8 @@ export interface components {
             ingested_at: string;
             /** Removed At */
             removed_at?: string | null;
+            /** Holder Status */
+            holder_status?: ("verified" | "mismatch" | "unknown") | null;
         };
         /** DraftEmailArgs */
         DraftEmailArgs: {
@@ -988,6 +1007,32 @@ export interface components {
             /** Local Inference */
             local_inference: boolean;
         };
+        /**
+         * Identity
+         * @description GET /api/identity: the §6.6 identity anchor, masked. Never the full name, date of birth or ID number.
+         */
+        Identity: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "verified" | "not_verified";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "signed_id" | "config";
+            /** Issuer */
+            issuer?: string | null;
+            /** Name Initials */
+            name_initials: string;
+            /** Birth Year */
+            birth_year?: number | null;
+            /** Doc Id */
+            doc_id?: string | null;
+            /** Verified At */
+            verified_at?: string | null;
+        };
         /** IngestEvent */
         IngestEvent: {
             /** Seq */
@@ -1003,6 +1048,8 @@ export interface components {
              * @enum {string}
              */
             signature_status: "issuer_signed" | "unsigned" | "invalid";
+            /** Holder Status */
+            holder_status?: ("verified" | "mismatch" | "unknown") | null;
             /** Entities Added */
             entities_added: number;
             /** Facts Added */
@@ -1031,6 +1078,8 @@ export interface components {
              * @enum {string}
              */
             signature_status: "issuer_signed" | "unsigned" | "invalid";
+            /** Holder Status */
+            holder_status?: ("verified" | "mismatch" | "unknown") | null;
             /**
              * Chunks Added
              * @default 0
@@ -1460,6 +1509,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Document"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    identity_anchor_api_identity_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-owner-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Identity"];
                 };
             };
             /** @description Validation Error */
