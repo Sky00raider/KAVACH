@@ -115,6 +115,14 @@ def run_attacks() -> dict[str, Any]:
     with _Runtime(copy_db=False) as tmp:
         saved_dir, saved_client = common.DATA_DIR, common.owner_client
         common.DATA_DIR = tmp / "requester"
+        real_parse, real_decide = consent.parse_question.parse, consent.decide.decide
+
+        # The attacks exercise the trust layer, not question parsing: the claim is fixed in code, so the set
+        # gives the same result with Ollama stopped or no model pulled.
+        def pinned(question: str) -> Claim:
+            return Claim(claim="income", op="ge", value=50000)
+
+        consent.parse_question.parse = pinned
         try:
             make_keys.export_trust_list(common.DATA_DIR / "trusted_issuers.json")
             pubkeys = json.loads(wallet.export_holder_pubkeys(10).read_text(encoding="utf-8"))
@@ -171,7 +179,6 @@ def run_attacks() -> dict[str, Any]:
 
             # 5. colluding narrowing: three paired keys probe 60k / 70k / 65k (decide fixed to OWNER_ATTESTED)
             salary, answers = 62000, []
-            real_parse, real_decide = consent.parse_question.parse, consent.decide.decide
             try:
                 for t in (60000, 70000, 65000):
                     consent.parse_question.parse = lambda q, t=t: Claim(claim="income", op="ge", value=t)
@@ -190,7 +197,7 @@ def run_attacks() -> dict[str, Any]:
                     answers.append(db.fetch_one("SELECT answer_type FROM requests WHERE request_id = ?",
                                                 (rid,))["answer_type"])
             finally:
-                consent.parse_question.parse, consent.decide.decide = real_parse, real_decide
+                consent.parse_question.parse, consent.decide.decide = pinned, real_decide
             case("colluding_narrowing", answers[1:] == ["REFUSED", "REFUSED"], f"answers {answers}")
 
             # 6. unpaired requester
@@ -203,6 +210,7 @@ def run_attacks() -> dict[str, Any]:
             chain = owner.get("/api/audit", headers=tok).json()
         finally:
             common.DATA_DIR, common.owner_client = saved_dir, saved_client
+            consent.parse_question.parse, consent.decide.decide = real_parse, real_decide
     return {"n": len(cases), "blocked": sum(c["blocked"] for c in cases), "audit_chain_intact": chain["chain_intact"],
             "cases": cases}
 

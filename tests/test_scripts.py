@@ -74,6 +74,20 @@ def test_run_eval_attacks_and_disclosure_set(runtime, monkeypatch):
     assert config.DB_PATH == runtime / "kavach.db"  # runtime restored after the throwaway runs
 
 
+def test_run_eval_attacks_do_not_need_the_model(runtime, monkeypatch):
+    from kavach.brain import llm, parse_question
+
+    def down(text):
+        raise llm.LLMError("no model")
+
+    monkeypatch.setattr(parse_question, "_map", down)
+    run_eval = _load("run_eval")
+    real_parse = parse_question.parse
+    c = run_eval.run_attacks()
+    assert c["n"] == c["blocked"] == 6 and c["audit_chain_intact"]
+    assert parse_question.parse is real_parse  # the pinned claim is removed again
+
+
 def test_bench_script_imports():
     bench = _load("bench_models")
     assert bench.TARGETS["first_token_s"] == 5.0

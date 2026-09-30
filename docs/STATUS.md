@@ -113,6 +113,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 11b. `scripts/run_eval.py`: set C runs the 6 attacks in a throwaway runtime (measured 27 Sep: 6/6 blocked, chain intact, ~3 s); sets A/B/D/E read `eval/set_x.jsonl` (formats in the docstring) against a temp copy of `kavach.db`, report real vs synthetic, wrong-disclosure count and median latency; exit code 1 if any attack gets through
 
 - 13. `/api/chat/stream` documents the `ChatEvent` union under `text/event-stream` in OpenAPI; `gen:types` now emits `ChatMetaData`, `ChatDoneData`, `ChatFinal`, `ChunkRef`, and `client.ts` uses them instead of deriving the stream types
+- 15. `scripts/run_eval.py` set C no longer needs Ollama: the claim for the attacked requests is fixed in code (the attacks test the trust layer, not parsing). Before, with Ollama stopped or no model pulled the genuine request was auto-refused and the set crashed on a missing `proofs.json`. Measured 30 Sep on a laptop with no models: 6/6 blocked, chain intact. `tests/test_scripts.py` runs the set with the model call raising
 - 14. `api.py` maps `brain.llm.LLMError` to `503 {"detail": "local model unavailable: ..."}` on every route (chat, memory, tasks)
 
 **Next**
