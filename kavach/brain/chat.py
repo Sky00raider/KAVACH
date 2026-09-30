@@ -12,6 +12,9 @@ about (`known_fact_chunks`: its quote or field must share a content token with t
 an unrelated fact measurably confused a small model into mis-citing on a real-model run) is then added on top,
 additively - it never removes a retrieved chunk, even one covering the same ground, since a small model given
 only the compact line in place of the real chunk lost the context it needed to cite correctly (also measured).
+Before those, one "condition check (computed)" line per decision condition the question is about
+(`condition_chunks`, `conditions.py`): the comparison with today's and scheduled values is done in code, cited as
+the decision's own chunk, so the model reports "stops being met on 2027-01-01" rather than comparing numbers.
 Chunks go to the model wrapped in
 `<chunk n=.. source=..>` delimiters and the system prompt says their contents are untrusted data, never instructions. The model only writes the answer; the citation check
 is plain code over the finished text.
@@ -43,7 +46,7 @@ from collections.abc import Iterator
 from datetime import date
 
 from kavach import config, db
-from kavach.brain import amounts, embed, entities, extract, llm, memory
+from kavach.brain import amounts, conditions, embed, entities, extract, llm, memory
 from kavach.models import (
     OWNER_ENTITY_ID,
     ChatDoneData,
@@ -90,8 +93,10 @@ Follow-up questions are answered the same way, with citations.
 - Some chunks are short "field = value" known-fact lines instead of raw document text. Prefer them over a raw \
 document chunk for a question about a specific number or value, and say where the value comes from and its \
 date, still with a citation number, e.g. "Your salary is 62000, from your bank statement dated 2026-04-01 [1]." \
-A "future change, not today's value" line is never the current value: give the "today" value first, then \
+A "future change" line is never the current value: give the "today" value first, then \
 the change and when it starts, each with its citation.
+- A "condition check (computed)" line already compares a decision's condition with the owner's values: start \
+your answer with its outcome, then the values, with its citation. Do not compare the numbers yourself.
 - If the chunks do not contain the answer, reply exactly: {NOT_IN_VAULT}
 - Be brief: a few sentences at most. Do not mention chunks, context or these rules."""
 
@@ -220,9 +225,10 @@ def _owner_facts(today: str) -> list[dict]:
 
 def _fact_text(fact: dict, today: str) -> str:
     """"field today = value (label, file, since date)", or for a scheduled fact "field from date = value (future
-    change, not today's value; label, file)" - compact, and few enough tokens to always include. The wording
-    says which is today's value outright: with both lines as "field = value (..., from date)", qwen2.5:3b answered
-    "What's my rent?" with the scheduled 16000 in 5/5 real runs."""
+    change from today's X; label, file)" - compact, and few enough tokens to always include. The wording says
+    which is today's value outright: with both lines as "field = value (..., from date)", qwen2.5:3b answered
+    "What's my rent?" with the scheduled 16000 in 5/5 real runs. (An extra "not today's value" was copied into
+    answers as an uncited sentence.)"""
     doc = db.fetch_one("SELECT path, source, doc_type FROM documents WHERE doc_id = ?",
                        (fact["doc_id"],)) if fact.get("doc_id") else None
     bits = [source_label(fact, doc)]
@@ -231,10 +237,13 @@ def _fact_text(fact: dict, today: str) -> str:
     if fact.get("valid_from") and fact["valid_from"] > today:
         now = db.current_fact(fact["entity_id"], fact["field"], today)
         change = f"future change from today's {now['value']}" if now else "future change"
-        return f"{fact['field']} from {fact['valid_from']} = {fact['value']} ({change}, not today's value; " \
+        return f"{fact['field']} from {fact['valid_from']} = {fact['value']} ({change}; " \
                f"{', '.join(bits)})"
     if fact.get("valid_from"):
         bits.append(f"since {fact['valid_from']}")
+    nxt = next((f for f in db.scheduled_facts(fact["entity_id"], today) if f["field"] == fact["field"]), None)
+    if nxt is not None:  # the model reads today's line most; the coming change must be in it too
+        bits.append(f"changes to {nxt['value']} on {nxt['valid_from']}")
     return f"{fact['field']} today = {fact['value']} ({', '.join(bits)})"
 
 
@@ -261,12 +270,62 @@ def known_fact_chunks(question: str, today: str | None = None) -> list[ScoredChu
             continue
         if not _relevant(fact, q_tokens):
             continue
-        row = next((r for r in db.chunks_for_document(fact["doc_id"])
-                   if extract.quote_in_text(amounts.normalize_amounts(r["text"]), fact["quote"])), None)
+        row = _fact_chunk(fact)
         if row is not None:
             chunks.append(ScoredChunk(chunk_id=row["chunk_id"], doc_id=fact["doc_id"], locator=row["locator"],
                                       text=_fact_text(fact, today), score=1.0))
     return chunks
+
+
+def _fact_chunk(fact: dict) -> dict | None:
+    """The fact's own real chunk: its quote found in the chunk's amounts-normalised text (the normalisation the
+    quote was grounded against)."""
+    if not fact.get("doc_id") or not fact.get("quote"):
+        return None
+    return next((r for r in db.chunks_for_document(fact["doc_id"])
+                 if extract.quote_in_text(amounts.normalize_amounts(r["text"]), fact["quote"])), None)
+
+
+def _fact_brief(fact: dict) -> str:
+    """"14500 (bank-signed statement, bank_statement_signed.pdf)" for a condition-check line."""
+    doc = db.fetch_one("SELECT path, source, doc_type FROM documents WHERE doc_id = ?",
+                       (fact["doc_id"],)) if fact.get("doc_id") else None
+    bits = [source_label(fact, doc)] + ([doc["path"].rsplit("/", 1)[-1]] if doc else [])
+    return f"{fact['value']} ({', '.join(bits)})"
+
+
+def condition_chunks(question: str, used: list[str], today: str | None = None) -> list[ScoredChunk]:
+    """One citable line per decision condition the question is about, compared with the facts in code
+    (`conditions.checks`): 'condition check (computed) for "<decision>": rent_amount today = 14500 (...) -> met;
+    from 2027-01-01 = 16000 (...) -> NOT met'. Cited as the decision's own chunk (else the fact's), so the popover
+    shows the owner's words."""
+    today = today or date.today().isoformat()
+    out: list[ScoredChunk] = []
+    for check in conditions.checks(question, used, today):
+        c = check.condition
+        verdict = {True: "met", False: "NOT met", None: "can't compare"}
+        now = c.holds(check.today["value"]) if check.today else None
+        breaks = next((f for f in check.later if c.holds(f["value"]) is False), None)
+        # the outcome first: on a real run a trailing "NOT met from 2027-01-01" was read as "still renew" 4/5 times
+        if breaks is not None and now is not False:
+            # not "so the answer is no": on a real run that made the model claim the rent "has gone above" today
+            outcome = f"outcome: the condition stops being met on {breaks['valid_from']}"
+        elif now is False:
+            outcome = "outcome: the condition is NOT met today"
+        else:
+            outcome = "outcome: the condition is met" if now else "outcome: can't tell"
+        parts = [f"{c.field} today = {_fact_brief(check.today)} -> {verdict[now]}"
+                 if check.today else f"no current {c.field}"]
+        parts += [f"from {f['valid_from']} = {_fact_brief(f)} -> {verdict[c.holds(f['value'])]}" for f in check.later]
+        row = db.chunks_by_ids([check.chunk_id])[0] if check.chunk_id else None
+        row = row or next((r for f in [check.today, *check.later] if f and (r := _fact_chunk(f))), None)
+        if row is None:
+            continue
+        text = (f'condition check (computed) for "{check.quote}" ({c.field} {c.op} {c.amount}): {outcome}. '
+                f'{"; ".join(parts)}')
+        out.append(ScoredChunk(chunk_id=row["chunk_id"], doc_id=row["doc_id"], locator=row["locator"], text=text,
+                               score=1.0))
+    return out
 
 
 def owner_stated_context(question: str, today: str | None = None) -> str:
@@ -462,7 +521,7 @@ def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]
     """§10 events: meta, token..., final, done. An LLMError mid-stream propagates (api.sse reports it)."""
     start = time.perf_counter()
     chunks, excluded, named, linked = retrieve(question)
-    fact_chunks = known_fact_chunks(question)
+    fact_chunks = condition_chunks(question, entities_used(named, linked, chunks)) + known_fact_chunks(question)
     history_msgs, chunks = fit_context(_history(history), chunks)
     chunks = fact_chunks + chunks  # additive only: never remove a retrieved chunk, even one a fact also covers
     refs = [ChunkRef(n=n, chunk_id=c.chunk_id, doc_id=c.doc_id, locator=c.locator) for n, c in enumerate(chunks, 1)]

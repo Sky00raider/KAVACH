@@ -402,7 +402,7 @@ def test_known_fact_chunks_marks_a_scheduled_fact_not_yet_in_effect(fresh_db):
                         "source_type": "extracted", "doc_id": "d_note", "quote": "rent goes to 16000 from January",
                         "valid_from": "2027-01-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
     by_field = {c.doc_id: c.text for c in chat.known_fact_chunks("What is my salary and rent?", today="2026-09-20")}
-    assert by_field["d_note"] == ("rent_amount from 2027-01-01 = 16000 (future change, not today's value; "
+    assert by_field["d_note"] == ("rent_amount from 2027-01-01 = 16000 (future change; "
                                   "from your notes, inbox_note.md)")  # no rent in force today to name
     assert by_field["d_bank"].startswith("monthly_income today = 62000")
     db.insert("facts", {"fact_id": "f_rent_now", "entity_id": OWNER_ENTITY_ID, "field": "rent_amount",
@@ -410,7 +410,7 @@ def test_known_fact_chunks_marks_a_scheduled_fact_not_yet_in_effect(fresh_db):
                         "valid_from": "2026-08-05", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
     by_field = {c.text.split(" ")[0] + c.doc_id: c.text
                 for c in chat.known_fact_chunks("What is my salary and rent?", today="2026-09-20")}
-    assert "(future change from today's 14500, not today's value;" in by_field["rent_amountd_note"]
+    assert "(future change from today's 14500;" in by_field["rent_amountd_note"]
 
 
 def test_owner_stated_facts_are_prose_only_not_a_citable_chunk(fresh_db):

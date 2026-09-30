@@ -40,6 +40,7 @@ import { saveLastAnswer } from "./lastAnswer"
 const SUGGESTED_QUESTIONS = [
   "How much is my rent, and when does the agreement end?",
   "What did I decide about renewing the flat?",
+  "Does my renewal condition still hold?",
   "What salary was credited to my account last month?",
   "What did my landlord say in our last chat?",
 ]
