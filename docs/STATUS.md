@@ -139,6 +139,7 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 
 **Done**
 - Eval sets written in `eval/` (2026-09-30): A 15 (synthetic, all `"real": false`; 4+ need 2 sources, 5 about projects or decisions), B 15 (all synthetic; expectations derived from CONTRACT §5 and the vault, not from system output), D 5 (incl. one with no recipient in the vault, expecting no email), E 5 (incl. one "from January" case). Set C untouched (generated in code)
+- Eval dry run (30 Sep, not for the deck: owner laptop CPU, qwen2.5:3b, a scratch `reset_demo.py` copy, after 69b85bd): A 15/15 answers, 14/15 citations (a01 cited the signed bank statement, which its `expect_docs` didn't list: added), B 15/15 answer types with 0 wrong disclosures, C 6/6 blocked with the chain intact, D 5/5 (5/5 pass validation), E 4/5 (e04 is the scheduled "from January" case the scorer can't pass yet; see TRUST proposal under BRAIN Blocked). Median latency A 10.9 s, B 1.5 s, D 3.8 s, E 1.2 s. Deck numbers: rerun on the demo (GPU) laptop after its reset
 
 **Next**
 - Set A still needs the outside person's 15 questions (written from the vault files only, before they see the system); they replace the synthetic ones and go in as `"real": true`
