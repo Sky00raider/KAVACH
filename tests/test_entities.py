@@ -746,6 +746,85 @@ def test_warm_up_embeds_entity_names(named, monkeypatch):
     assert {config.EMBED_QUERY_PREFIX + n for n in ("ravi", "flat move 2026")} <= set(named.embedded)
 
 
+# --- bank statement rows (BRAIN step 7: code, never the model) ----------------------------------------------
+
+
+def _row(date_, desc, amount, balance):
+    return f"{date_}  {desc}  {amount}  {balance}"
+
+
+def test_bank_rows_reads_upi_debits_and_credit_rows():
+    text = " ".join([
+        _row("2026-06-01", "SALARY CREDIT Nimbus Analytics", "48,000.00", "80,250.00"),
+        _row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00"),
+        _row("2026-06-12", "CARD/GROCERIES AND UTILITIES", "9,120.50", "56,129.50"),
+    ])
+    rows = E.bank_rows(text)
+    assert rows == [("credit", "Nimbus Analytics", "48,000.00"), ("debit", "RAVI KUMAR", "15,000.00")]
+
+
+def test_bank_rows_ignores_a_row_with_no_named_counterparty():
+    assert E.bank_rows(_row("2026-06-12", "CARD/GROCERIES AND UTILITIES", "9,120.50", "56,129.50")) == []
+
+
+def test_bank_rows_survives_trailing_summary_text_after_the_last_row():
+    text = (_row("2026-08-12", "UPI/RENT/RAVI KUMAR", "15,000.00", "56,129.50")
+           + " Average monthly salary credit: INR 48000. This statement is digitally signed by the issuing bank.")
+    assert E.bank_rows(text) == [("debit", "RAVI KUMAR", "15,000.00")]
+
+
+def test_bank_rows_ignores_the_preamble_before_the_first_dated_row():
+    text = ("Mock Bank of India - Statement of Account Account holder: Ananya Iyer Period: 01 Jun 2026 to 31 Aug "
+           "2026 " + _row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00"))
+    assert E.bank_rows(text) == [("debit", "RAVI KUMAR", "15,000.00")]
+
+
+def _entity(entity_id, type_, name):
+    db.insert("entities", {"entity_id": entity_id, "type": type_, "name": name,
+                           "norm_name": E.normalise_name(name), "attrs_json": "{}"})
+
+
+def test_bank_edges_links_only_existing_entities(fresh_db):
+    _entity("e_ravi", "PERSON", "Ravi Kumar")
+    chunk = {"chunk_id": "c_1", "text": " ".join([
+        _row("2026-06-01", "SALARY CREDIT Nimbus Analytics", "48,000.00", "80,250.00"),  # no such entity: skipped
+        _row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00"),
+    ])}
+    edges = E.bank_edges([chunk])
+    assert len(edges) == 1
+    assert (edges[0]["src"], edges[0]["rel"], edges[0]["dst"]) == (OWNER_ENTITY_ID, "PAID", "e_ravi")
+    assert edges[0]["source_chunk_id"] == "c_1"
+
+
+def test_bank_edges_credit_row_pays_the_owner(fresh_db):
+    _entity("e_acme", "ORG", "Nimbus Analytics")
+    chunk = {"chunk_id": "c_1", "text": _row("2026-06-01", "SALARY CREDIT Nimbus Analytics", "48,000.00", "80,250.00")}
+    edges = E.bank_edges([chunk])
+    assert (edges[0]["src"], edges[0]["rel"], edges[0]["dst"]) == ("e_acme", "PAID", OWNER_ENTITY_ID)
+
+
+def test_bank_edges_ignores_a_non_person_non_org_match(fresh_db):
+    _entity("e_proj", "PROJECT", "Ravi Kumar")  # same name, wrong type
+    chunk = {"chunk_id": "c_1", "text": _row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00")}
+    assert E.bank_edges([chunk]) == []
+
+
+def test_bank_edges_dedupes_repeated_rows_across_chunks(fresh_db):
+    _entity("e_ravi", "PERSON", "Ravi Kumar")
+    row = _row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00")
+    edges = E.bank_edges([{"chunk_id": "c_1", "text": row}, {"chunk_id": "c_2", "text": row}])
+    assert len(edges) == 1
+
+
+def test_ingest_wires_bank_edges_for_bank_statement_documents(vault, fresh_db, extractor):
+    pdf = vault.root / "pdfs" / "bank_statement_signed.pdf"
+    _make_pdf(pdf, [_row("2026-06-05", "UPI/RENT/RAVI KUMAR", "15,000.00", "65,250.00")])
+    _entity("e_ravi", "PERSON", "Ravi Kumar")
+    ingest.ingest_file(pdf)
+    edge = db.fetch_one("SELECT * FROM edges WHERE dst = 'e_ravi' AND rel = 'PAID'")
+    assert edge is not None and edge["src"] == OWNER_ENTITY_ID
+
+
 # --- real model (Ollama) -----------------------------------------------------------------------------------
 
 DEMO = config.ROOT / "demo_data"

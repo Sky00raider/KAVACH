@@ -132,6 +132,47 @@ def test_ingested_audit_detail_is_exact(vault):
         "chunks_added": 1, "entities_added": 2, "facts_added": 0})]  # note DOCUMENT + link placeholder
 
 
+def test_ingest_extracts_grounded_facts(vault, fresh_db, monkeypatch):
+    from kavach.brain import extract
+
+    # ingest normalises amounts before the model sees the text, so "15,000" already reads as "15000" here
+    monkeypatch.setattr(extract, "extract", lambda text: extract.Extraction(facts=[
+        extract.XFact(field="rent_amount", value="15000", quote="Rent is 15000, due on the 5th.")]))
+    note = vault.root / "notes" / "rent.md"
+    note.write_text("# Rent\nRent is 15,000, due on the 5th.", encoding="utf-8")
+    res = ingest.ingest_file(note)
+    assert res.facts_added == 1
+    fact = fresh_db.list_facts()[0]
+    assert (fact.field, fact.value, fact.source_type) == ("rent_amount", "15000", "extracted")
+    assert fact.doc_id == res.doc_id and fact.entity_id == "e_owner"
+
+
+def test_ingest_marks_facts_issuer_doc_only_when_signed(vault, fresh_db, monkeypatch):
+    from kavach.brain import extract
+
+    monkeypatch.setattr(extract, "extract", lambda text: extract.Extraction(
+        facts=[extract.XFact(field="monthly_income", value="62000", quote="Salary Credit 62000")]))
+    monkeypatch.setattr(issuer_check, "verify_pdf",
+                        lambda path: SignatureResult(status="issuer_signed", iss="mock_bank"))
+    pdf = vault.root / "pdfs" / "bank_statement_signed.pdf"
+    _make_pdf(pdf, ["Salary Credit 62,000.00"])
+    ingest.ingest_file(pdf)
+    assert fresh_db.list_facts()[0].source_type == "issuer_doc"
+
+
+def test_ingest_never_extracts_facts_from_an_invalid_document(vault, fresh_db, monkeypatch):
+    from kavach.brain import extract
+
+    calls = []
+    monkeypatch.setattr(extract, "extract", lambda text: calls.append(text) or extract.Extraction())
+    monkeypatch.setattr(issuer_check, "verify_pdf",
+                        lambda path: SignatureResult(status="invalid", iss="mock_bank", detail="tampered"))
+    pdf = vault.root / "pdfs" / "bank_statement_TAMPERED.pdf"
+    _make_pdf(pdf, ["Salary Credit 92,000.00"])
+    res = ingest.ingest_file(pdf)
+    assert res.facts_added == 0 and calls == []
+
+
 def test_note_ingest(vault, fresh_db):
     note = vault.root / "notes" / "rent.md"
     note.write_text("﻿# Rent\n\nRent is ₹15,000.\n", encoding="utf-8")

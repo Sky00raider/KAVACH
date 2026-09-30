@@ -93,7 +93,7 @@ kavach/                         repo root
 
 `field` rules: `issuer_doc` facts must use one of `EXTRACTED_FIELDS`. `extracted` and `owner_stated` facts may use any snake_case name (`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`), e.g. `gym_membership_fee`. Only the fields in `DISCLOSABLE_FIELDS` (§5.1) can ever feed a disclosure. `MemoryCandidate.field` follows the same snake_case rule.
 
-**FactVersion** (`GET /api/memory/timeline`): a Fact plus `created_at` (UTC ISO) and `current` (bool: `valid_to` and `superseded_by` both null).
+**FactVersion** (`GET /api/memory/timeline`): a Fact plus `created_at` (UTC ISO) and `current` (bool: today is on or after `valid_from`, and `valid_to` and `superseded_by` are both null). A fact whose `valid_from` is still in the future is "scheduled": stored and visible, but not `current` until that date arrives; storing it never touches the fact it will eventually replace (`db.supersede_and_insert_fact`), so nothing needs to run again when the date does. Inserting a fact whose `valid_from` is not later than one already open is instead the historical case: the new row is stored already closed against the newer one, which is never disturbed.
 
 ## 5. Disclosure model
 

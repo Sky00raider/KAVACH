@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
-import type { ChatFinal, ChatMeta, Document, IngestEvent } from "@/api/client"
+import type { ChatFinal, ChatMeta, Document, IngestEvent, MemoryCandidate } from "@/api/client"
 import {
   answerBlocks,
   buildHistory,
+  candidateLabel,
   citedNumbers,
   flagView,
   footerText,
@@ -179,5 +180,20 @@ describe("timeAgo", () => {
     expect(timeAgo("2026-09-27T09:59:55Z", now)).toBe("just now")
     expect(timeAgo("2026-09-27T09:59:00Z", now)).toBe("1m ago")
     expect(timeAgo("2026-09-27T07:00:00Z", now)).toBe("3h ago")
+  })
+})
+
+describe("candidateLabel", () => {
+  const base = { candidate_id: "mc_1", statement: "By the way my rent went up to 16000 from January.",
+    status: "pending", created_at: "2026-09-27T10:00:00Z" } as const
+
+  it("shows field, value and date for a fact candidate", () => {
+    const c: MemoryCandidate = { ...base, kind: "fact", field: "rent_amount", value: "16000", valid_from: "2027-01-01" }
+    expect(candidateLabel(c)).toBe("rent amount = 16000, from 2027-01-01")
+  })
+
+  it("falls back to the statement for a decision candidate", () => {
+    const c: MemoryCandidate = { ...base, kind: "decision", statement: "Decided to renew the lease." }
+    expect(candidateLabel(c)).toBe("Decided to renew the lease.")
   })
 })

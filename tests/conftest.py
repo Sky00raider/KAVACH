@@ -29,6 +29,28 @@ def fresh_db(tmp_path, monkeypatch):
     return db
 
 
+def fake_taught_map(text: str):
+    """Keyword stand-in for memory.teach's one model call, in the same spirit as fake_parse_map."""
+    import re
+
+    from kavach.brain.memory import TaughtFact
+
+    low = text.lower()
+    n = re.search(r"\d+", text)
+    value = n.group() if n else "unspecified"
+    if re.search(r"salary|income|earn", low):
+        field = "monthly_income"
+    elif re.search(r"rent", low):
+        field = "rent_amount"
+    elif re.search(r"employ|job", low):
+        field = "employer"
+    elif re.search(r"landlord", low):
+        field = "landlord"
+    else:
+        field = "note"
+    return TaughtFact(field=field, value=value, valid_from=None)
+
+
 def fake_parse_map(text: str):
     """Keyword stand-in for parse_question's one model call. Normalisation and validation still run."""
     import re
@@ -64,7 +86,10 @@ def _no_ollama_outside_llm_tests(request, monkeypatch):
     embed._query_cache.clear()
     entities._name_vectors.clear()
     if request.node.get_closest_marker("llm") is None:
-        from kavach.brain import parse_question
+        from kavach.brain import extract, memory, parse_question
 
         monkeypatch.setattr(parse_question, "_map", fake_parse_map)
         monkeypatch.setattr(entities, "extract", lambda text: entities.Extraction())
+        monkeypatch.setattr(extract, "extract", lambda text: extract.Extraction())
+        monkeypatch.setattr(memory, "_extract_candidates", lambda text: memory.CandidateExtraction())
+        monkeypatch.setattr(memory, "_parse_taught", fake_taught_map)

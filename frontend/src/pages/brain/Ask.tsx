@@ -5,6 +5,7 @@ import {
   FileUp,
   Info,
   Laptop,
+  Lightbulb,
   RotateCcw,
   Server,
   ShieldAlert,
@@ -12,7 +13,7 @@ import {
   Square,
   SquarePen,
 } from "lucide-react"
-import { api, chatStream, type Document } from "@/api/client"
+import { api, chatStream, type Document, type MemoryCandidate } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,7 @@ import {
   answerBlocks,
   basename,
   buildHistory,
+  candidateLabel,
   flagView,
   footerText,
   formatMs,
@@ -97,7 +99,55 @@ function AnswerText({ blocks, sources, docs, muted, streaming }: {
   )
 }
 
-function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry: () => void }) {
+type CandidateState = Record<string, "accepted" | "discarded">
+
+function MemoryCandidates({ candidates, decided, onDecide }: {
+  candidates: MemoryCandidate[]
+  decided: CandidateState
+  onDecide: (id: string, remember: boolean) => void
+}) {
+  if (candidates.length === 0) return null
+  return (
+    <div className="space-y-1.5">
+      {candidates.map((c) => {
+        const state = decided[c.candidate_id]
+        return (
+          <div
+            key={c.candidate_id}
+            className="flex items-center gap-2 rounded-lg border border-dashed bg-muted/40 px-3 py-1.5 text-xs"
+          >
+            <Lightbulb className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="flex-1 text-muted-foreground">
+              Remember {c.kind === "decision" ? "this decision" : candidateLabel(c)}?
+            </span>
+            {state ? (
+              <span className="font-medium text-muted-foreground">
+                {state === "accepted" ? "Remembered" : "Discarded"}
+              </span>
+            ) : (
+              <>
+                <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => onDecide(c.candidate_id, true)}>
+                  Yes
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => onDecide(c.candidate_id, false)}>
+                  No
+                </Button>
+              </>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function TurnView({ turn, docs, decided, onDecide, onRetry }: {
+  turn: Turn
+  docs: DocIndex
+  decided: CandidateState
+  onDecide: (id: string, remember: boolean) => void
+  onRetry: () => void
+}) {
   const sources = useMemo(() => sourceMap(turn.meta, turn.final), [turn.meta, turn.final])
   const { notice, warnings } = flagView(turn.final?.flags ?? [])
   const blocks = useMemo(() => answerBlocks(turn.text, turn.final?.flags), [turn.text, turn.final])
@@ -190,6 +240,10 @@ function TurnView({ turn, docs, onRetry }: { turn: Turn; docs: DocIndex; onRetry
           </div>
         )}
 
+        {(turn.final?.memory_candidates?.length ?? 0) > 0 && (
+          <MemoryCandidates candidates={turn.final!.memory_candidates!} decided={decided} onDecide={onDecide} />
+        )}
+
         {turn.phase === "stopped" && <p className="text-xs text-muted-foreground">Stopped.</p>}
 
         {turn.phase === "error" && (
@@ -242,6 +296,7 @@ function EmptyState({ onAsk }: { onAsk: (q: string) => void }) {
 export default function Ask() {
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState("")
+  const [decided, setDecided] = useState<CandidateState>({})
   const [dragging, setDragging] = useState(false)
   const turnsRef = useRef(turns)
   turnsRef.current = turns
@@ -308,6 +363,19 @@ export default function Ask() {
   function retry(turn: Turn) {
     setTurns((ts) => ts.filter((t) => t.id !== turn.id))
     send(turn.question)
+  }
+
+  async function decideCandidate(id: string, remember: boolean) {
+    setDecided((d) => ({ ...d, [id]: remember ? "accepted" : "discarded" }))
+    try {
+      await api.decideCandidate(id, remember)
+    } catch {
+      setDecided((d) => {
+        const next = { ...d }
+        delete next[id]
+        return next
+      })
+    }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -395,7 +463,7 @@ export default function Ask() {
           ) : (
             <div className="space-y-10 pb-4">
               {turns.map((t) => (
-                <TurnView key={t.id} turn={t} docs={docs} onRetry={() => retry(t)} />
+                <TurnView key={t.id} turn={t} docs={docs} decided={decided} onDecide={decideCandidate} onRetry={() => retry(t)} />
               ))}
             </div>
           )}

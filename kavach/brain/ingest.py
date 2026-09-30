@@ -1,10 +1,13 @@
-"""PDF / notes / WhatsApp -> documents + chunks + entities and edges (+ facts, BRAIN step 7).
+"""PDF / notes / WhatsApp -> documents + chunks + entities, edges and facts.
 
 Paths are stored vault-relative (CONTRACT §8). A changed file keeps its doc_id, gets new chunks and has its
 old facts and edges closed, never deleted. An unchanged file (same text_hash) is not re-chunked or re-embedded.
-Entities and edges (`entities.index_document`) are extracted after the chunks are stored, except for documents
-whose signature check failed: those get none, and a document that turns `invalid` without a text change has its
-edges and facts closed. A document whose status leaves `invalid` is re-ingested so it gets them.
+Entities, edges (`entities.index_document`) and facts (`extract.facts_for_document`) are extracted after the
+chunks are stored, except for documents whose signature check failed: those get none, and a document that turns
+`invalid` without a text change has its edges and facts closed. A document whose status leaves `invalid` is
+re-ingested so it gets them. A bank statement's rows also get code-parsed `PAID` edges (`entities.bank_edges`),
+never a model guess (entities.py's docstring); `source_type` for extracted facts is `issuer_doc` when the
+document verifies, else `extracted` (never called for a document whose signature check failed).
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from kavach import config, db, textnorm
-from kavach.brain import embed, entities
+from kavach.brain import embed, entities, extract
 from kavach.db import new_id, utc_now
 from kavach.models import DocSource, IngestResult, SignatureResult
 from kavach.trust import audit, issuer_check
@@ -186,14 +189,15 @@ def ingest_file(path: Path) -> IngestResult:
 
     opening = sections[0][1][: config.CHUNK_SIZE] if sections else ""
     doc_type = _doc_type(source, path.name, opening)
+    ingested_at = utc_now()
     db.store_document({"doc_id": doc_id, "path": rel, "source": source,
                        "doc_type": doc_type, "signature_status": sig.status,
-                       "iss": sig.iss, "text_hash": digest, "ingested_at": utc_now(), "removed_at": None},
+                       "iss": sig.iss, "text_hash": digest, "ingested_at": ingested_at, "removed_at": None},
                       chunks, closed_on=date.today().isoformat())
     embed.invalidate()
 
-    entities_added = 0
-    if sig.status != "invalid":  # a tampered document contributes nothing to the graph
+    entities_added = facts_added = 0
+    if sig.status != "invalid":  # a tampered document contributes nothing to the graph or the facts table
         links = [(target, c["chunk_id"]) for c in chunks for target in note_links(c["text"])] if source == "note" else []
         first_link: dict[str, tuple[str, str]] = {}
         for target, chunk_id in links:
@@ -201,9 +205,16 @@ def ingest_file(path: Path) -> IngestResult:
         project, related = note_structure("\n".join(t for _, t in sections)) if source == "note" else (None, [])
         entities_added = entities.index_document(rel, source, chunks, list(first_link.values()), doc_type=doc_type,
                                                  project=project, related=related)
+        if doc_type == "bank_statement":
+            bank_edges = entities.bank_edges(chunks)
+            if bank_edges:
+                db.insert_edges(bank_edges)
+        source_type = "issuer_doc" if sig.status == "issuer_signed" else "extracted"
+        facts_added = extract.facts_for_document(doc_id, source, source_type, chunks, ingested_at,
+                                                    doc_type=doc_type)
 
     result = IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status,
-                          chunks_added=len(chunks), entities_added=entities_added)
+                          chunks_added=len(chunks), entities_added=entities_added, facts_added=facts_added)
     if sig.status == "invalid":
         audit.log("document_signature_failed", doc_id, {"path": rel, "doc_id": doc_id, "iss": sig.iss,
                                                         "reason": sig.detail})

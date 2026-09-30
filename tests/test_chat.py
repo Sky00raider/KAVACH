@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from kavach import config
-from kavach.brain import chat, embed, ingest, llm
-from kavach.models import ChatFinalEvent, ChatMetaEvent, ChatResult, ChatTokenEvent, ChatTurn, ScoredChunk
+from kavach import config, db
+from kavach.brain import chat, embed, ingest, llm, memory
+from kavach.models import OWNER_ENTITY_ID, ChatFinalEvent, ChatMetaEvent, ChatResult, ChatTokenEvent, ChatTurn, ScoredChunk
 
 RENT = ScoredChunk(chunk_id="c_rent000001", doc_id="d_rent000001", locator="note: rent.md", score=1.0,
                    text="Flat notes. Monthly rent is Rs. 15,000, paid on the 5th. The deposit was 45,000.")
@@ -350,6 +350,130 @@ def test_long_quote_is_cut_on_a_word_boundary(fake):
     quote = _final()[1].citations[0].quote
     assert len(quote) <= chat.QUOTE_CHARS and text.startswith(quote) and not quote.endswith(" ")
     assert text[len(quote)] == " "
+
+
+# --- known facts (BUILD_PLAN §4.5: prefer grounded current facts over raw chunks) ----------------------------
+
+
+def _bank_doc(fresh_db, doc_id="d_bank", path="pdfs/bank_statement_signed.pdf"):
+    db.insert("documents", {"doc_id": doc_id, "path": path, "source": "pdf", "signature_status": "issuer_signed",
+                            "ingested_at": "2026-09-01T00:00:00Z"})
+    db.insert("chunks", {"chunk_id": "c_bank", "doc_id": doc_id, "locator": "page 1",
+                         "text": "Salary Credit 62000 on the 1st."})
+    db.insert("facts", {"fact_id": "f_income", "entity_id": OWNER_ENTITY_ID, "field": "monthly_income",
+                        "value": "62000", "source_type": "issuer_doc", "doc_id": doc_id, "quote": "Salary Credit 62000",
+                        "valid_from": "2026-04-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
+    return doc_id
+
+
+def test_known_fact_chunks_cite_the_real_chunk(fresh_db):
+    _bank_doc(fresh_db)
+    [chunk] = chat.known_fact_chunks("What is my salary?", today="2026-09-20")
+    assert chunk.chunk_id == "c_bank" and chunk.doc_id == "d_bank" and chunk.locator == "page 1"
+    assert chunk.text == "monthly_income = 62000 (bank-signed statement, bank_statement_signed.pdf, from 2026-04-01)"
+
+
+def test_known_fact_chunks_needs_relevance_to_the_question(fresh_db):
+    # an unrelated fact measurably confused a small model into mis-citing on a real-model run
+    _bank_doc(fresh_db)
+    assert chat.known_fact_chunks("Who is my landlord?", today="2026-09-20") == []
+
+
+def test_known_fact_chunks_marks_a_scheduled_fact_not_yet_in_effect(fresh_db):
+    _bank_doc(fresh_db)
+    db.insert("documents", {"doc_id": "d_note", "path": "notes/inbox_note.md", "source": "note",
+                            "signature_status": "unsigned", "ingested_at": "2026-09-01T00:00:00Z"})
+    db.insert("chunks", {"chunk_id": "c_note", "doc_id": "d_note", "locator": "note: inbox_note.md",
+                         "text": "Landlord said rent goes to 16000 from January."})
+    db.insert("facts", {"fact_id": "f_rent", "entity_id": OWNER_ENTITY_ID, "field": "rent_amount", "value": "16000",
+                        "source_type": "extracted", "doc_id": "d_note", "quote": "rent goes to 16000 from January",
+                        "valid_from": "2027-01-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
+    by_field = {c.doc_id: c.text for c in chat.known_fact_chunks("What is my salary and rent?", today="2026-09-20")}
+    assert "not yet in effect" in by_field["d_note"]
+    assert "not yet in effect" not in by_field["d_bank"]
+
+
+def test_owner_stated_facts_are_prose_only_not_a_citable_chunk(fresh_db):
+    db.insert("facts", {"fact_id": "f_taught", "entity_id": OWNER_ENTITY_ID, "field": "gym_membership_fee",
+                        "value": "2500", "source_type": "owner_stated", "quote": "My gym fee is 2500",
+                        "valid_from": "2026-09-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
+    assert chat.known_fact_chunks("What is my gym fee?", today="2026-09-20") == []
+    context = chat.owner_stated_context("What is my gym fee?", today="2026-09-20")
+    assert "gym_membership_fee = 2500 (you told me, from 2026-09-01)" in context
+    assert context.startswith("The owner has also told you:")
+
+
+def test_owner_stated_context_needs_relevance_to_the_question(fresh_db):
+    db.insert("facts", {"fact_id": "f_taught", "entity_id": OWNER_ENTITY_ID, "field": "gym_membership_fee",
+                        "value": "2500", "source_type": "owner_stated", "quote": "My gym fee is 2500",
+                        "valid_from": "2026-09-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
+    assert chat.owner_stated_context("How much is my rent?", today="2026-09-20") == ""
+
+
+def test_facts_are_included_and_cited_in_the_answer(fake, fresh_db):
+    _bank_doc(fresh_db)
+    fake.chunks = []
+    fake.reply = "Your salary is 62000, from your bank statement dated 2026-04-01 [1]."
+    events, final = _final("What is my salary?")
+    assert fake.calls == 1  # the fact chunk means this is not a no_context turn
+    assert [r.chunk_id for r in events[0].data.chunks] == ["c_bank"]
+    assert final.citation_ok and final.flags == []
+    assert final.citations[0].quote.startswith("monthly_income = 62000")
+
+
+def test_a_fact_chunk_is_additive_never_replaces_the_real_chunk(fake, fresh_db):
+    # additive only (never dedup-remove a retrieved chunk): a small model given only the compact fact line in
+    # place of the real chunk lost the context it needed and stopped citing correctly (regression, real-model run)
+    _bank_doc(fresh_db)
+    fake.chunks = [ScoredChunk(chunk_id="c_bank", doc_id="d_bank", locator="page 1", score=1.0,
+                              text="Salary Credit 62000 on the 1st.")]
+    fake.reply = "Your salary is 62000 [1][2]."
+    events, final = _final("salary?")
+    assert [r.chunk_id for r in events[0].data.chunks] == ["c_bank", "c_bank"]  # fact line, then the real chunk
+    assert "monthly_income = 62000" in fake.messages[-1]["content"]
+    assert "Salary Credit 62000 on the 1st." in fake.messages[-1]["content"]
+    assert final.citation_ok
+
+
+# --- owner memory candidates (BUILD_PLAN §4.4: "Remember this?") ---------------------------------------------
+
+
+@pytest.mark.parametrize("sentence, is_question", [
+    ("How much is my rent?", True),
+    ("What did I pay last month", True),
+    ("Is my rent due today?", True),
+    ("By the way, my rent went up to 16000.", False),
+    ("Decided to renew the lease.", False),
+])
+def test_is_question(sentence, is_question):
+    assert chat._is_question(sentence) == is_question
+
+
+def test_statement_sentences_keeps_only_non_question_sentences():
+    message = "By the way, my rent went up to 16000 from January. Also, what's my current balance?"
+    assert chat.statement_sentences(message) == ["By the way, my rent went up to 16000 from January."]
+
+
+def test_statement_sentences_empty_for_a_pure_question():
+    assert chat.statement_sentences("How much is my rent?") == []
+
+
+def test_pure_question_never_calls_the_candidate_model(fake, monkeypatch):
+    monkeypatch.setattr(memory, "_extract_candidates",
+                        lambda text: (_ for _ in ()).throw(AssertionError("model called")))
+    fake.reply = "Your rent is 15000 [1]."
+    final = _final("How much is my rent?")[1]
+    assert final.memory_candidates == []
+
+
+def test_a_statement_turn_populates_memory_candidates(fake, monkeypatch):
+    message = "By the way, my rent went up to 16000 from January."
+    monkeypatch.setattr(memory, "_extract_candidates", lambda text: memory.CandidateExtraction(candidates=[
+        memory.XCandidate(kind="fact", statement=message, field="rent_amount", value="16000", valid_from="January")]))
+    fake.reply = "Got it [1]."
+    final = _final(message)[1]
+    assert len(final.memory_candidates) == 1
+    assert final.memory_candidates[0].field == "rent_amount" and final.memory_candidates[0].status == "pending"
 
 
 # --- real model (Ollama) ----------------------------------------------------------------------------------

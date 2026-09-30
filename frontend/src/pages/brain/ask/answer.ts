@@ -1,7 +1,7 @@
 // Display logic for the Ask page, kept free of React so it can be unit tested.
 // The citation check itself runs on the server (brain/chat.py); this only mirrors its sentence and
 // citation parsing so the UI can place citation chips and mark the sentences the server flagged.
-import type { ChatDone, ChatFinal, ChatMeta, ChatTurn, Citation, ChunkRef, Document, IngestEvent } from "@/api/client"
+import type { ChatDone, ChatFinal, ChatMeta, ChatTurn, Citation, ChunkRef, Document, IngestEvent, MemoryCandidate } from "@/api/client"
 
 const CITE = /\[(\d+(?:\s*,\s*\d+)*)\]/g
 const SENTENCE_END = /(?<=[.!?])\s+(?=[A-Z"'(\[])|\n+/g
@@ -158,6 +158,15 @@ export function footerText(turn: Turn): string | null {
     parts.push(`${formatMs(turn.done.first_token_ms)} first token / ${formatMs(turn.done.latency_ms)} total`)
   }
   return parts.join(" · ")
+}
+
+/** "Remember rent amount = 16000, from 2027-01-01?" / "Remember this decision?" for the chip's question. */
+export function candidateLabel(c: MemoryCandidate): string {
+  if (c.kind === "fact" && c.field && c.value) {
+    const when = c.valid_from ? `, from ${c.valid_from}` : ""
+    return `${c.field.replaceAll("_", " ")} = ${c.value}${when}`
+  }
+  return c.statement
 }
 
 export function basename(path: string): string {

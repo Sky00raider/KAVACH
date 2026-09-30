@@ -10,7 +10,7 @@ import json
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -310,6 +310,74 @@ def chunks_by_ids(chunk_ids: Iterable[str]) -> list[dict[str, Any]]:
                      f"({', '.join('?' * len(ids))}) ORDER BY rowid", tuple(ids))
 
 
+def chunks_for_document(doc_id: str) -> list[dict[str, Any]]:
+    """chunk_id, locator, text of one document's chunks, in insertion order (chat's fact citations)."""
+    return fetch_all("SELECT chunk_id, doc_id, locator, text FROM chunks WHERE doc_id = ? ORDER BY rowid", (doc_id,))
+
+
+# --- facts: temporal supersession (brain/extract.py, brain/memory.py) ------------------------------------
+
+_FACT_COLS = ("fact_id", "entity_id", "field", "value", "source_type", "doc_id", "quote", "valid_from",
+             "valid_to", "superseded_by", "confidence", "created_at")
+
+
+def current_fact(entity_id: str, field: str, today: str | None = None) -> dict[str, Any] | None:
+    """The fact for `(entity_id, field)` that is current as of `today` (default: today's date): its
+    `valid_from` has arrived, and it is neither closed (`valid_to`) nor superseded. Picks the greatest
+    `valid_from` on a tie (relevant once a scheduled fact's date has passed one already open)."""
+    today = today or date.today().isoformat()
+    return fetch_one(
+        "SELECT * FROM facts WHERE entity_id = ? AND field = ? AND valid_from <= ? "
+        "AND valid_to IS NULL AND superseded_by IS NULL ORDER BY valid_from DESC LIMIT 1",
+        (entity_id, field, today))
+
+
+def scheduled_facts(entity_id: str, today: str | None = None) -> list[dict[str, Any]]:
+    """Open facts for `entity_id` not yet in effect (`valid_from` in the future): known changes that have not
+    happened yet, oldest first."""
+    today = today or date.today().isoformat()
+    return fetch_all("SELECT * FROM facts WHERE entity_id = ? AND valid_to IS NULL AND superseded_by IS NULL "
+                     "AND valid_from > ? ORDER BY valid_from", (entity_id, today))
+
+
+def supersede_and_insert_fact(fact: dict[str, Any], today: str | None = None) -> list[dict[str, Any]]:
+    """Insert one fact for `(entity_id, field)`, threading it into that field's open facts (`valid_to IS NULL
+    AND superseded_by IS NULL`), one transaction. Returns the existing facts this call closed (empty unless the
+    "already in effect" branch below fires) - their state just before closing, for a caller that wants to report
+    what a new value replaced (`memory.teach`'s `TeachResult.superseded`):
+    - a fact whose `valid_from` is strictly earlier than some existing open fact's is inserted already closed
+      against the nearest strictly-later one (an out-of-order, backdated ingest never disturbs a newer fact, and
+      closes nothing existing);
+    - a fact whose `valid_from` is not strictly earlier than any open fact's (later, or tied - two facts taught
+      the same day both default to today) and is already in effect (`valid_from <= today`) closes every open
+      fact that is not strictly later than it (`valid_to` = its own `valid_from`, `superseded_by` = its own id);
+      on a tie the new fact wins, since it is being recorded after the existing one either way;
+    - such a fact that is not yet in effect (scheduled) closes nothing: it is inserted open alongside the fact
+      it will eventually replace, so `current_fact` keeps returning the right one until that date arrives (and
+      picks the new one once it does, via its `ORDER BY valid_from DESC`)."""
+    today = today or date.today().isoformat()
+    with connect() as conn:
+        open_rows = conn.execute(
+            "SELECT * FROM facts WHERE entity_id = ? AND field = ? AND valid_to IS NULL AND superseded_by IS NULL",
+            (fact["entity_id"], fact["field"])).fetchall()
+        vf = fact["valid_from"] or ""
+        strictly_later = sorted((r for r in open_rows if (r["valid_from"] or "") > vf),
+                                key=lambda r: r["valid_from"] or "")
+        not_later = [r for r in open_rows if (r["valid_from"] or "") <= vf]
+        row = dict(fact)
+        closed: list[dict[str, Any]] = []
+        if strictly_later:
+            successor = strictly_later[0]
+            row["valid_to"], row["superseded_by"] = successor["valid_from"], successor["fact_id"]
+        elif vf <= today and not_later:
+            conn.executemany("UPDATE facts SET valid_to = ?, superseded_by = ? WHERE fact_id = ?",
+                             [(vf, fact["fact_id"], r["fact_id"]) for r in not_later])
+            closed = [{**dict(r), "valid_to": vf, "superseded_by": fact["fact_id"]} for r in not_later]
+        conn.execute(f"INSERT INTO facts ({', '.join(_FACT_COLS)}) VALUES ({', '.join('?' * len(_FACT_COLS))})",
+                     tuple(row.get(c) for c in _FACT_COLS))
+        return closed
+
+
 # --- typed readers used by the API --------------------------------------------
 
 
@@ -342,13 +410,18 @@ def _fact(row: dict[str, Any]) -> Fact:
     return Fact(**row)
 
 
-def list_facts(field: str | None = None, current: bool = False) -> list[Fact]:
+def list_facts(field: str | None = None, current: bool = False, today: str | None = None) -> list[Fact]:
+    """`current=True`: valid_to IS NULL AND superseded_by IS NULL AND valid_from <= today (excludes a scheduled
+    fact not yet in effect); may still return more than one per field until an eventually-effective fact closes
+    every older open one (`supersede_and_insert_fact`) - callers wanting one value per field pick the greatest
+    `valid_from` (as `decide.py` and `current_fact` do)."""
     clauses, params = [], []
     if field:
         clauses.append("field = ?")
         params.append(field)
     if current:
-        clauses.append("valid_to IS NULL AND superseded_by IS NULL")
+        clauses.append("valid_to IS NULL AND superseded_by IS NULL AND (valid_from IS NULL OR valid_from <= ?)")
+        params.append(today or date.today().isoformat())
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return [_fact(r) for r in fetch_all(f"SELECT * FROM facts {where} ORDER BY created_at DESC", tuple(params))]
 
