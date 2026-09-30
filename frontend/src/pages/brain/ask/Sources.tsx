@@ -1,10 +1,24 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Popover } from "radix-ui"
-import { FileText, Loader2, MessageCircle, NotebookPen, ShieldAlert, ShieldCheck } from "lucide-react"
+import {
+  Calculator,
+  CalendarClock,
+  CircleCheck,
+  CircleX,
+  FileText,
+  Loader2,
+  MessageCircle,
+  NotebookPen,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react"
 import { api, type Chunk, type Document } from "@/api/client"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/components/lib/utils"
+import { issuerName } from "../graph/graph"
+import { fieldLabel, formatDate, formatValue } from "../memory/memory"
 import { basename, sourceLabel, sourceParts, type SourceRef } from "./answer"
+import { findHighlight, highlightCandidates, parseComputed, type ComputedLine, type SourceBit } from "./computed"
 
 export type DocIndex = Map<string, Document>
 
@@ -30,7 +44,7 @@ export function SignatureBadge({ status, iss }: { status?: string; iss?: string 
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-success/12 px-1.5 py-0.5 text-[11px] font-medium text-success">
         <ShieldCheck className="size-3" />
-        Signed{iss ? ` by ${iss}` : ""}
+        Signed{iss ? ` by ${issuerName(iss)}` : ""}
       </span>
     )
   }
@@ -45,16 +59,101 @@ export function SignatureBadge({ status, iss }: { status?: string; iss?: string 
   return null
 }
 
-/** The chunk text with the citation quote highlighted (the server guarantees it is an exact substring). */
-function Highlighted({ text, quote }: { text: string; quote?: string }) {
+/** The chunk text with the citation quote (an exact substring, from the server) or a given range highlighted. */
+function Highlighted({ text, quote, range }: { text: string; quote?: string; range?: [number, number] | null }) {
   const at = quote ? text.indexOf(quote) : -1
-  if (!quote || at < 0) return <>{text}</>
+  const [start, end] = range ?? (quote && at >= 0 ? [at, at + quote.length] : [-1, -1])
+  if (start < 0) return <>{text}</>
   return (
     <>
-      {text.slice(0, at)}
-      <mark className="rounded-sm bg-primary/20 px-0.5 text-foreground">{quote}</mark>
-      {text.slice(at + quote.length)}
+      {text.slice(0, start)}
+      <mark className="rounded-sm bg-primary/20 px-0.5 text-foreground">{text.slice(start, end)}</mark>
+      {text.slice(end)}
     </>
+  )
+}
+
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
+const OP_TEXT: Record<string, string> = { "<": "under", "<=": "at most", ">": "over", ">=": "at least" }
+
+function SourceLine({ source }: { source?: SourceBit }) {
+  if (!source?.label) return null
+  return (
+    <span className="text-muted-foreground">
+      {cap(source.label)}
+      {source.file && <span className="font-mono text-[11px]"> · {source.file}</span>}
+    </span>
+  )
+}
+
+function Verdict({ met }: { met: boolean | null }) {
+  if (met === null) return <span className="size-4 shrink-0" />
+  const Icon = met ? CircleCheck : CircleX
+  return <Icon className={cn("mt-0.5 size-4 shrink-0", met ? "text-success" : "text-destructive")} />
+}
+
+/** A known-fact or condition-check line the answer cited, as the owner reads it (`computed.ts`). */
+function ComputedCard({ line }: { line: ComputedLine }) {
+  return (
+    <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[13px]">
+      <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-primary uppercase">
+        <Calculator className="size-3.5" /> Checked in code · {fieldLabel(line.field)}
+      </p>
+      {line.kind === "fact" && (
+        <>
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-lg font-semibold tabular-nums">{formatValue(line.field, line.value)}</span>
+            <span className="text-muted-foreground">today{line.since ? `, since ${formatDate(line.since)}` : ""}</span>
+          </p>
+          <p><SourceLine source={line.source} /></p>
+          {line.next && (
+            <p className="flex items-center gap-1.5 text-warning">
+              <CalendarClock className="size-3.5 shrink-0" />
+              Changes to {formatValue(line.field, line.next.value)} on {formatDate(line.next.on)}
+            </p>
+          )}
+        </>
+      )}
+      {line.kind === "scheduled" && (
+        <>
+          <p className="flex flex-wrap items-center gap-x-2 text-warning">
+            <CalendarClock className="size-3.5 shrink-0" />
+            <span>
+              From {formatDate(line.on)}:{" "}
+              <strong className="font-semibold tabular-nums">{formatValue(line.field, line.value)}</strong>
+            </span>
+            {line.from && <span className="text-muted-foreground">(today {formatValue(line.field, line.from)})</span>}
+          </p>
+          <p><SourceLine source={line.source} /></p>
+        </>
+      )}
+      {line.kind === "condition" && (
+        <>
+          <p className="italic">“{line.decision}”</p>
+          <p className="text-muted-foreground">
+            Condition: {fieldLabel(line.field).toLowerCase()} {OP_TEXT[line.op] ?? line.op}{" "}
+            {formatValue(line.field, line.amount)}
+          </p>
+          <ul className="space-y-1">
+            {line.rows.map((r) => (
+              <li key={r.when} className="flex items-start gap-1.5">
+                <Verdict met={r.met} />
+                <span>
+                  {r.when === "today" ? "Today" : `From ${formatDate(r.when)}`}:{" "}
+                  <strong className="font-semibold tabular-nums">{r.value ? formatValue(line.field, r.value) : "–"}</strong>
+                  {r.met !== null && <span className="text-muted-foreground"> · {r.met ? "met" : "not met"}</span>}
+                  <br />
+                  <SourceLine source={r.source} />
+                </span>
+              </li>
+            ))}
+          </ul>
+          {line.breaksOn && (
+            <p className="font-medium text-warning">Stops being met on {formatDate(line.breaksOn)}.</p>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -72,8 +171,10 @@ function SourceCard({ source, doc }: { source: SourceRef; doc?: Document }) {
     }
   }, [source.chunk_id])
 
+  const computed = parseComputed(source.quote)
   return (
     <div className="space-y-2.5">
+      {computed && <ComputedCard line={computed} />}
       <div className="flex items-start gap-2">
         {source.n > 0 && (
           <span className="mt-px grid size-5 shrink-0 place-items-center rounded bg-primary/15 text-[11px] font-semibold text-primary">
@@ -93,7 +194,11 @@ function SourceCard({ source, doc }: { source: SourceRef; doc?: Document }) {
       </div>
       <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/40 p-2.5 text-[13px] leading-relaxed whitespace-pre-wrap">
         {chunk ? (
-          <Highlighted text={chunk.text} quote={source.quote} />
+          computed ? (
+            <Highlighted text={chunk.text} range={findHighlight(chunk.text, highlightCandidates(computed))} />
+          ) : (
+            <Highlighted text={chunk.text} quote={source.quote} />
+          )
         ) : error ? (
           <span className="text-destructive">Could not load this passage: {error}</span>
         ) : (
@@ -167,10 +272,12 @@ export function SourcesRow({ sources, docs, cited }: {
         const doc = docs.get(s.doc_id)
         const dim = cited !== undefined && !cited.has(s.n)
         const { name, page } = sourceParts(s, doc)
+        const computed = parseComputed(s.quote)
         return (
           <SourcePopover key={s.n} source={s} doc={doc}>
             <button
               type="button"
+              title={computed ? `${fieldLabel(computed.field)}, checked in code against ${name}` : undefined}
               style={{ animationDelay: `${i * 45}ms` }}
               className={cn(
                 "inline-flex max-w-60 items-center gap-1.5 rounded-md border bg-card px-2 py-1 text-xs transition-all animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both hover:border-primary/50 hover:bg-accent",
@@ -178,7 +285,12 @@ export function SourcesRow({ sources, docs, cited }: {
               )}
             >
               <span className={cn("font-semibold", dim ? "text-muted-foreground" : "text-primary")}>{s.n}</span>
-              <SourceIcon source={doc?.source} className="text-muted-foreground" />
+              {computed ? (
+                <Calculator className="size-3.5 shrink-0 text-primary" />
+              ) : (
+                <SourceIcon source={doc?.source} className="text-muted-foreground" />
+              )}
+              {computed && <span className="shrink-0 font-medium">{fieldLabel(computed.field)} ·</span>}
               <span className="truncate">{name}</span>
               {page && <span className="shrink-0 text-muted-foreground">{page}</span>}
               {doc?.signature_status === "issuer_signed" && <ShieldCheck className="size-3 shrink-0 text-success" />}

@@ -455,9 +455,16 @@ def drop_unrelated_citations(text: str, chunk_texts: dict[int, str]) -> tuple[st
     return "".join(pieces), dropped
 
 
+COMPUTED = re.compile(r"^(?:condition check \(computed\) for |[a-z][a-z0-9_]* (?:today|from \d{4}-\d{2}-\d{2}) = )")
+
+
 def _quote(chunk_text: str, cited_by: list[str]) -> str:
     """The chunk sentence sharing the most search tokens with the answer sentences that cite it (first on a
-    tie), cut to QUOTE_CHARS on a word boundary. Always an exact substring of the chunk."""
+    tie), cut to QUOTE_CHARS on a word boundary. Always an exact substring of the chunk. A computed line (a
+    known-fact or condition-check pseudo-chunk, `COMPUTED`) is quoted whole: the Ask page parses it into a
+    "Checked in code" card above the real passage (`pages/brain/ask/computed.ts`)."""
+    if COMPUTED.match(chunk_text):
+        return chunk_text
     wanted = {t for s in cited_by for t in embed.tokenize(_CITE.sub("", s))}
     candidates = sentences(chunk_text) or [chunk_text]
     best = max(candidates, key=lambda s: len(wanted & set(embed.tokenize(s))))

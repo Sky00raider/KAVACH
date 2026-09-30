@@ -344,6 +344,17 @@ def test_quote_is_the_best_matching_chunk_sentence(fake):
         assert c.quote in chunk.text
 
 
+def test_a_computed_line_is_quoted_whole(fake):
+    # the Ask page parses it into a "Checked in code" card (pages/brain/ask/computed.ts)
+    line = ('condition check (computed) for "I decided to renew only if rent stays under ₹15,000." (rent_amount < '
+            "15000): outcome: the condition stops being met on 2027-01-01. rent_amount today = 14500 (bank-signed "
+            "statement, bank_statement_signed.pdf) -> met; from 2027-01-01 = 16000 (from your notes, "
+            "inbox_note.md) -> NOT met")
+    fake.chunks = [ScoredChunk(chunk_id="c_d", doc_id="d_d", locator="note: rent_decision.md", text=line, score=1.0)]
+    fake.reply = "Your renewal condition stops being met on 2027-01-01 [1]."
+    assert len(line) > chat.QUOTE_CHARS and _final()[1].citations[0].quote == line
+
+
 def test_long_quote_is_cut_on_a_word_boundary(fake):
     text = "Clause " + " ".join(f"word{i}" for i in range(80)) + "."
     fake.chunks = [ScoredChunk(chunk_id="c_l", doc_id="d_l", locator="page 1", text=text, score=1.0)]
