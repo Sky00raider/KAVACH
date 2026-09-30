@@ -29,6 +29,7 @@ from kavach import config, db
 from kavach.brain import amounts, entities, extract, llm
 from kavach.db import new_id, utc_now
 from kavach.models import OWNER_ENTITY_ID, Entity, Fact, FactVersion, MemoryCandidate, TeachResult
+from kavach.trust import audit
 
 _QUESTION = re.compile(r"\?\s*$")
 
@@ -113,26 +114,26 @@ def teach(statement: str) -> TeachResult:
         parsed = None
     field = extract.clean_field_name(parsed.field) if parsed else None
     value = parsed.value.strip() if parsed else ""
-    if not field or not value:
+    # grounded like a document fact (hard rule 3): a live run turned "hmm" into monthly_income = 50000
+    if not field or not value or extract.grounding(norm, norm, value) != "high":
         raise ValueError("could not read a field and value to remember from that statement")
-    valid_from = extract.resolve_valid_from(parsed.valid_from if parsed else None, date.today())
-    if valid_from is None:
-        valid_from = date.today().isoformat()
+    valid_from = extract.valid_from_in_text(norm, date.today())
     fact, superseded = _store_owner_fact(field, value, statement, valid_from)
+    audit.log("memory_taught", fact.fact_id, {"fact_id": fact.fact_id, "field": field,
+                                              "superseded": [f.fact_id for f in superseded]})
     return TeachResult(fact=fact, superseded=superseded)
 
 
 # --- chat memory candidates (BUILD_PLAN §4.4, CONTRACT §10 `final.memory_candidates`) ----------------------
 
 
-def _ground_fact_candidate(c: XCandidate) -> dict | None:
+def _ground_fact_candidate(c: XCandidate, quote: str) -> dict | None:
     field = extract.clean_field_name(c.field or "")
     value = (c.value or "").strip()
-    if not field or not value:
+    norm = amounts.normalize_amounts(quote)
+    if not field or not value or extract.grounding(norm, norm, value) != "high":
         return None
-    valid_from = extract.resolve_valid_from(c.valid_from, date.today())
-    if valid_from is None:
-        return None
+    valid_from = extract.valid_from_in_text(norm, date.today())
     return {"field": field, "value": value, "valid_from": valid_from, "project_entity_id": None}
 
 
@@ -168,7 +169,7 @@ def candidates_from_statements(statements: list[str], message: str) -> list[Memo
         quote = " ".join(unicodedata.normalize("NFKC", c.statement).split())
         if not quote or not extract.quote_in_text(message, quote):
             continue
-        extra = _ground_fact_candidate(c) if c.kind == "fact" else _ground_decision_candidate(c, quote)
+        extra = _ground_fact_candidate(c, quote) if c.kind == "fact" else _ground_decision_candidate(c, quote)
         if extra is None:
             continue
         row = {"candidate_id": new_id("mc"), "statement": quote, "kind": c.kind, "status": "pending",
@@ -203,9 +204,14 @@ def decide_candidate(candidate_id: str, remember: bool) -> Fact | Entity | None:
     if not remember:
         return None
     if row["kind"] == "fact":
-        fact, _superseded = _store_owner_fact(row["field"], row["value"], row["statement"], row["valid_from"])
-        return fact
-    return _accept_decision(row)
+        stored: Fact | Entity = _store_owner_fact(row["field"], row["value"], row["statement"], row["valid_from"])[0]
+        stored_id = stored.fact_id
+    else:
+        stored = _accept_decision(row)
+        stored_id = stored.entity_id
+    audit.log("memory_candidate_accepted", candidate_id, {"candidate_id": candidate_id, "kind": row["kind"],
+                                                          "stored_id": stored_id})
+    return stored
 
 
 # --- timeline (CONTRACT §9 GET /api/memory/timeline) --------------------------------------------------------

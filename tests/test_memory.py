@@ -34,6 +34,36 @@ def test_teach_supersedes_the_current_fact(fresh_db, monkeypatch):
                                         "valid_to": first.fact.valid_from, "superseded_by": second.fact.fact_id})]
 
 
+def test_teach_and_accepting_a_candidate_are_audited_without_values(fresh_db, monkeypatch):
+    from kavach.trust import audit
+    events = []
+    monkeypatch.setattr(audit, "log", lambda event, ref_id, detail: events.append((event, ref_id, detail)) or 1)
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="rent_amount", value="16000"))
+    result = memory.teach("My rent is 16000.")
+    cid = _store_candidate(kind="fact", field="gym_fee", value="1200", valid_from="2026-01-01")["candidate_id"]
+    stored = memory.decide_candidate(cid, True)
+    assert [e[0] for e in events] == ["memory_taught", "memory_candidate_accepted"]
+    assert events[0][2] == {"fact_id": result.fact.fact_id, "field": "rent_amount", "superseded": []}
+    assert events[1][2] == {"candidate_id": cid, "kind": "fact", "stored_id": stored.fact_id}
+    assert "16000" not in str(events) and "1200" not in str(events)
+
+
+def test_teach_refuses_a_value_the_statement_does_not_state(fresh_db, monkeypatch):
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="monthly_income", value="50000"))
+    with pytest.raises(ValueError):
+        memory.teach("hmm")  # a live run stored exactly this
+    assert db.list_facts() == []
+    monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="gym_fee", value="1500"))
+    assert memory.teach("My gym fee is ₹1.5k a month").fact.value == "1500"  # amounts normalised first
+
+
+def test_a_fact_candidate_must_state_its_value(fresh_db, monkeypatch):
+    message = "My rent went up from January."
+    monkeypatch.setattr(memory, "_extract_candidates", lambda text: memory.CandidateExtraction(candidates=[
+        memory.XCandidate(kind="fact", statement=message, field="rent_amount", value="16000")]))
+    assert memory.candidates_from_statements([message], message) == []
+
+
 def test_teach_cleans_a_messy_field_name(fresh_db, monkeypatch):
     monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="Gym Membership Fee!!", value="2500"))
     result = memory.teach("My gym fee is 2500.")
@@ -110,6 +140,88 @@ def test_an_already_effective_fact_closes_every_older_open_fact(fresh_db):
         row = db.fetch_one("SELECT * FROM facts WHERE fact_id = ?", (fid,))
         assert (row["valid_to"], row["superseded_by"]) == ("2027-06-01", c["fact_id"])
     assert db.current_fact(OWNER_ENTITY_ID, "rent_amount", "2027-07-01")["fact_id"] == c["fact_id"]
+
+
+def _row(fact):
+    return db.fetch_one("SELECT * FROM facts WHERE fact_id = ?", (fact["fact_id"],))
+
+
+@pytest.mark.parametrize("bank_first", [True, False])
+def test_a_restated_value_supports_the_stronger_source_in_any_order(fresh_db, bank_first):
+    """The demo run: a signed June statement and later notes/chat all saying 14500. Each later ingest used to
+    replace the previous one, so the WhatsApp chat ended up "current" instead of the bank-signed statement."""
+    today = "2026-09-30"
+    bank = _fact("rent_amount", "14500", "2026-06-05", source_type="issuer_doc")
+    note = _fact("rent_amount", "14500", "2026-09-18")
+    chat = _fact("rent_amount", "14500", "2026-09-30")
+    for f in ([bank, note, chat] if bank_first else [chat, note, bank]):
+        assert db.supersede_and_insert_fact(f, today) == []  # the same value never "replaces" anything
+    assert db.current_fact(OWNER_ENTITY_ID, "rent_amount", today)["fact_id"] == bank["fact_id"]
+    for f in (note, chat):
+        assert _row(f)["superseded_by"] == bank["fact_id"]  # supporting sources point at the current one
+
+
+def test_same_value_equal_strength_keeps_the_earliest(fresh_db):
+    first = _fact("landlord", "Ravi Kumar", "2026-09-18")
+    later = _fact("landlord", "RAVI KUMAR", "2026-09-30")  # case and spacing do not make a new value
+    db.supersede_and_insert_fact(first, "2026-09-30")
+    db.supersede_and_insert_fact(later, "2026-09-30")
+    assert db.current_fact(OWNER_ENTITY_ID, "landlord", "2026-09-30")["fact_id"] == first["fact_id"]
+    assert (_row(later)["valid_to"], _row(later)["superseded_by"]) == ("2026-09-30", first["fact_id"])
+
+
+def test_a_changed_value_still_supersedes_by_date(fresh_db):
+    bank = _fact("rent_amount", "14500", "2026-06-05", source_type="issuer_doc")
+    db.supersede_and_insert_fact(bank, "2026-09-30")
+    note = _fact("rent_amount", "15000", "2026-09-01")
+    closed = db.supersede_and_insert_fact(note, "2026-09-30")
+    assert [r["fact_id"] for r in closed] == [bank["fact_id"]]
+    assert db.current_fact(OWNER_ENTITY_ID, "rent_amount", "2026-09-30")["fact_id"] == note["fact_id"]
+
+
+def test_the_demo_rent_chain_scheduled_change_on_top_of_supported_value(fresh_db):
+    today = "2026-09-30"
+    bank = _fact("rent_amount", "14500", "2026-06-05", source_type="issuer_doc")
+    chat = _fact("rent_amount", "14500", "2026-09-18")
+    inbox = _fact("rent_amount", "16000", "2027-01-01")
+    for f in (bank, chat, inbox):
+        db.supersede_and_insert_fact(f, today)
+    assert db.current_fact(OWNER_ENTITY_ID, "rent_amount", today)["fact_id"] == bank["fact_id"]
+    assert [f["fact_id"] for f in db.scheduled_facts(OWNER_ENTITY_ID, today)] == [inbox["fact_id"]]
+    assert db.current_fact(OWNER_ENTITY_ID, "rent_amount", "2027-01-01")["fact_id"] == inbox["fact_id"]
+
+
+def test_a_low_confidence_fact_never_displaces_a_grounded_one(fresh_db):
+    good = _fact("landlord", "Ravi Kumar", "2026-06-05")
+    vague = _fact("landlord", "somebody", "2026-09-30", confidence="low")
+    db.supersede_and_insert_fact(good, "2026-09-30")
+    assert db.supersede_and_insert_fact(vague, "2026-09-30") == []
+    assert db.current_fact(OWNER_ENTITY_ID, "landlord", "2026-09-30")["fact_id"] == good["fact_id"]
+    assert _row(vague)["superseded_by"] == good["fact_id"]
+
+
+def test_a_grounded_fact_closes_an_open_low_confidence_one_even_if_backdated(fresh_db):
+    vague = _fact("landlord", "somebody", "2026-09-30", confidence="low")
+    good = _fact("landlord", "Ravi Kumar", "2026-06-05")
+    db.supersede_and_insert_fact(vague, "2026-09-30")
+    db.supersede_and_insert_fact(good, "2026-09-30")
+    assert db.current_fact(OWNER_ENTITY_ID, "landlord", "2026-09-30")["fact_id"] == good["fact_id"]
+    assert _row(vague)["superseded_by"] == good["fact_id"]
+
+
+def test_removing_the_current_source_promotes_its_strongest_supporter(fresh_db):
+    for doc_id in ("d_bank", "d_note", "d_chat"):
+        db.insert("documents", {"doc_id": doc_id, "path": f"{doc_id}.txt", "source": "note", "doc_type": "note",
+                                "signature_status": "unsigned", "ingested_at": "2026-09-30T00:00:00Z"})
+    bank = _fact("rent_amount", "14500", "2026-06-05", source_type="issuer_doc", doc_id="d_bank")
+    note = _fact("rent_amount", "14500", "2026-09-18", doc_id="d_note")
+    chat = _fact("rent_amount", "14500", "2026-09-20", doc_id="d_chat")
+    for f in (bank, note, chat):
+        db.supersede_and_insert_fact(f, "2026-09-30")
+    db.remove_document("d_bank", "2026-09-30T01:00:00Z", closed_on="2026-09-30")
+    current = db.current_fact(OWNER_ENTITY_ID, "rent_amount", "2026-09-30")
+    assert current["fact_id"] == note["fact_id"]  # equal strength: the earliest
+    assert _row(chat)["superseded_by"] == note["fact_id"]
 
 
 # --- chat memory candidates ------------------------------------------------------------------------------------
@@ -221,13 +333,14 @@ def test_decide_candidate_unknown_or_already_decided_is_none(fresh_db):
 
 
 def test_timeline_marks_exactly_one_current_version(fresh_db, monkeypatch):
-    # both dates safely in the past, regardless of when this test runs
+    # both dates safely in the past, regardless of when this test runs; the date is read from the statement in
+    # code, never from the model's valid_from (which says something else here on purpose)
     monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="monthly_income", value="62000",
-                                                                                valid_from="2020-04-01"))
-    memory.teach("Salary is 62000 from April.")
+                                                                                valid_from="2031-01-01"))
+    memory.teach("Salary is 62000 from April 2020.")
     monkeypatch.setattr(memory, "_parse_taught", lambda text: memory.TaughtFact(field="monthly_income", value="70000",
-                                                                                valid_from="2020-10-01"))
-    memory.teach("Salary went up to 70000 from October.")
+                                                                                valid_from="2031-01-01"))
+    memory.teach("Salary went up to 70000 from October 2020.")
     versions = memory.timeline("monthly_income")
     assert [v.value for v in versions] == ["62000", "70000"]
     assert [v.current for v in versions] == [False, True]

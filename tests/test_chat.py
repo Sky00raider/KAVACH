@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -356,8 +357,8 @@ def test_long_quote_is_cut_on_a_word_boundary(fake):
 
 
 def _bank_doc(fresh_db, doc_id="d_bank", path="pdfs/bank_statement_signed.pdf"):
-    db.insert("documents", {"doc_id": doc_id, "path": path, "source": "pdf", "signature_status": "issuer_signed",
-                            "ingested_at": "2026-09-01T00:00:00Z"})
+    db.insert("documents", {"doc_id": doc_id, "path": path, "source": "pdf", "doc_type": "bank_statement",
+                            "signature_status": "issuer_signed", "ingested_at": "2026-09-01T00:00:00Z"})
     db.insert("chunks", {"chunk_id": "c_bank", "doc_id": doc_id, "locator": "page 1",
                          "text": "Salary Credit 62000 on the 1st."})
     db.insert("facts", {"fact_id": "f_income", "entity_id": OWNER_ENTITY_ID, "field": "monthly_income",
@@ -370,7 +371,19 @@ def test_known_fact_chunks_cite_the_real_chunk(fresh_db):
     _bank_doc(fresh_db)
     [chunk] = chat.known_fact_chunks("What is my salary?", today="2026-09-20")
     assert chunk.chunk_id == "c_bank" and chunk.doc_id == "d_bank" and chunk.locator == "page 1"
-    assert chunk.text == "monthly_income = 62000 (bank-signed statement, bank_statement_signed.pdf, from 2026-04-01)"
+    assert chunk.text == ("monthly_income today = 62000 (bank-signed statement, bank_statement_signed.pdf, "
+                          "since 2026-04-01)")
+
+
+@pytest.mark.parametrize("source, doc_type, source_type, label", [
+    ("chat", "whatsapp", "extracted", "from your WhatsApp chat"),  # the demo run said "from your notes" for a chat
+    ("note", "note", "extracted", "from your notes"),
+    ("pdf", "rent_agreement", "extracted", "from an unsigned document"),
+    ("pdf", "marksheet", "issuer_doc", "board-signed marksheet"),
+])
+def test_source_label_follows_the_document(source, doc_type, source_type, label):
+    assert chat.source_label({"source_type": source_type}, {"source": source, "doc_type": doc_type}) == label
+    assert chat.source_label({"source_type": "owner_stated"}, None) == "you told me"
 
 
 def test_known_fact_chunks_needs_relevance_to_the_question(fresh_db):
@@ -389,8 +402,15 @@ def test_known_fact_chunks_marks_a_scheduled_fact_not_yet_in_effect(fresh_db):
                         "source_type": "extracted", "doc_id": "d_note", "quote": "rent goes to 16000 from January",
                         "valid_from": "2027-01-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
     by_field = {c.doc_id: c.text for c in chat.known_fact_chunks("What is my salary and rent?", today="2026-09-20")}
-    assert "not yet in effect" in by_field["d_note"]
-    assert "not yet in effect" not in by_field["d_bank"]
+    assert by_field["d_note"] == ("rent_amount from 2027-01-01 = 16000 (future change, not today's value; "
+                                  "from your notes, inbox_note.md)")  # no rent in force today to name
+    assert by_field["d_bank"].startswith("monthly_income today = 62000")
+    db.insert("facts", {"fact_id": "f_rent_now", "entity_id": OWNER_ENTITY_ID, "field": "rent_amount",
+                        "value": "14500", "source_type": "issuer_doc", "doc_id": "d_bank", "quote": "Salary Credit",
+                        "valid_from": "2026-08-05", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
+    by_field = {c.text.split(" ")[0] + c.doc_id: c.text
+                for c in chat.known_fact_chunks("What is my salary and rent?", today="2026-09-20")}
+    assert "(future change from today's 14500, not today's value;" in by_field["rent_amountd_note"]
 
 
 def test_owner_stated_facts_are_prose_only_not_a_citable_chunk(fresh_db):
@@ -399,7 +419,7 @@ def test_owner_stated_facts_are_prose_only_not_a_citable_chunk(fresh_db):
                         "valid_from": "2026-09-01", "confidence": "high", "created_at": "2026-09-01T00:00:00Z"})
     assert chat.known_fact_chunks("What is my gym fee?", today="2026-09-20") == []
     context = chat.owner_stated_context("What is my gym fee?", today="2026-09-20")
-    assert "gym_membership_fee = 2500 (you told me, from 2026-09-01)" in context
+    assert "gym_membership_fee today = 2500 (you told me, since 2026-09-01)" in context
     assert context.startswith("The owner has also told you:")
 
 
@@ -418,7 +438,7 @@ def test_facts_are_included_and_cited_in_the_answer(fake, fresh_db):
     assert fake.calls == 1  # the fact chunk means this is not a no_context turn
     assert [r.chunk_id for r in events[0].data.chunks] == ["c_bank"]
     assert final.citation_ok and final.flags == []
-    assert final.citations[0].quote.startswith("monthly_income = 62000")
+    assert final.citations[0].quote.startswith("monthly_income today = 62000")
 
 
 def test_a_fact_chunk_is_additive_never_replaces_the_real_chunk(fake, fresh_db):
@@ -430,7 +450,7 @@ def test_a_fact_chunk_is_additive_never_replaces_the_real_chunk(fake, fresh_db):
     fake.reply = "Your salary is 62000 [1][2]."
     events, final = _final("salary?")
     assert [r.chunk_id for r in events[0].data.chunks] == ["c_bank", "c_bank"]  # fact line, then the real chunk
-    assert "monthly_income = 62000" in fake.messages[-1]["content"]
+    assert "monthly_income today = 62000" in fake.messages[-1]["content"]
     assert "Salary Credit 62000 on the 1st." in fake.messages[-1]["content"]
     assert final.citation_ok
 
@@ -542,6 +562,30 @@ def test_real_model_cites_two_notes(warm_llm, fresh_db, tmp_path, monkeypatch):
     assert final.citation_ok
     assert {"note: rent.md", "note: landlord.md"} <= cited
     assert "Ramesh" in final.answer and "15" in final.answer
+
+
+RENT_NOW = "Rent\n\nDate: 18 September 2026\n\nRavi Kumar confirmed the current rent is ₹14,500 a month."
+INBOX = ("# Inbox Note\n\nDate: 27 September 2026\n\nJust got off the phone with Ravi Kumar.\n"
+         "Landlord said rent goes to ₹16k from January.\nGuess we are moving.\n")
+
+
+@pytest.mark.llm
+@pytest.mark.parametrize("question", ["Has anything changed with my rent?", "What's my rent?"])
+def test_real_model_rent_now_and_from_january(warm_llm, fresh_db, tmp_path, monkeypatch, question):
+    """The demo's live moment (30 Sep dry run): after inbox_note.md, both answers give 14,500 as today's rent and
+    16,000 from January, cited; real extraction dates the change from "from January" in the quote."""
+    if date.today() >= date(2027, 1, 1):
+        pytest.skip("the January change is in effect from 2027-01-01")
+    _ingest_notes(tmp_path, monkeypatch, {"rent.md": RENT_NOW, "inbox_note.md": INBOX})
+    scheduled = [f for f in db.scheduled_facts(OWNER_ENTITY_ID) if f["field"] == "rent_amount"]
+    assert [(f["value"], f["valid_from"]) for f in scheduled] == [("16000", "2027-01-01")]
+    assert db.current_fact(OWNER_ENTITY_ID, "rent_amount")["value"] == "14500"
+    final, cited = _ask(question)
+    answer = final.answer.replace(",", "")
+    assert final.citation_ok and "14500" in answer and "16000" in answer, final.answer
+    assert "note: inbox_note.md" in cited
+    if question == "What's my rent?":  # the change question often cites the change line for both values
+        assert "note: rent.md" in cited
 
 
 @pytest.mark.llm

@@ -217,7 +217,7 @@ def test_chat_memory_and_decisions(client):
     r = client.post("/api/chat", headers=TOKEN, json={"question": "rent?", "history": []})
     out = ChatResult.model_validate(r.json())  # empty vault: fixed answer, no model call
     assert not out.citation_ok and out.flags == ["no_context", "not_in_vault"]
-    r = client.post("/api/memory", headers=TOKEN, json={"statement": "My salary went up"})
+    r = client.post("/api/memory", headers=TOKEN, json={"statement": "My salary went up to 70000"})
     TeachResult.model_validate(r.json())
     r = client.post("/api/memory/candidates/mc_1/decision", headers=TOKEN, json={"remember": True})
     CandidateDecisionOut.model_validate(r.json())

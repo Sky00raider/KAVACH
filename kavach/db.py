@@ -173,11 +173,16 @@ def document_status(doc_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
 
 
 def _close_document_knowledge(conn: sqlite3.Connection, doc_id: str, closed_on: str) -> None:
-    """Close (never delete) the doc's current facts and the edges sourced from its chunks."""
+    """Close (never delete) the doc's current facts and the edges sourced from its chunks. A closed fact's best
+    supporting source from another live document (or the owner) takes its place (`_promote_supporter`)."""
     conn.execute("UPDATE edges SET valid_to = ? WHERE valid_to IS NULL AND source_chunk_id IN "
                  "(SELECT chunk_id FROM chunks WHERE doc_id = ?)", (closed_on, doc_id))
+    closing = conn.execute("SELECT * FROM facts WHERE doc_id = ? AND valid_to IS NULL AND superseded_by IS NULL",
+                           (doc_id,)).fetchall()
     conn.execute("UPDATE facts SET valid_to = ? WHERE doc_id = ? AND valid_to IS NULL AND superseded_by IS NULL",
                  (closed_on, doc_id))
+    for r in closing:
+        _promote_supporter(conn, dict(r), doc_id)
 
 
 def close_document_knowledge(doc_id: str, closed_on: str) -> None:
@@ -340,41 +345,108 @@ def scheduled_facts(entity_id: str, today: str | None = None) -> list[dict[str, 
                      "AND valid_from > ? ORDER BY valid_from", (entity_id, today))
 
 
+_SOURCE_RANK = {"issuer_doc": 2, "extracted": 1, "owner_stated": 0}
+
+
+def fact_rank(fact: dict[str, Any]) -> tuple[int, int]:
+    """How strongly a fact is backed: high confidence first, then issuer-signed > extracted > owner-stated (a
+    document can be cited; the owner's own word cannot)."""
+    return (fact.get("confidence") == "high", _SOURCE_RANK.get(fact.get("source_type") or "", 0))
+
+
+def same_value(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Values equal ignoring case and whitespace ("RAVI KUMAR" == "Ravi Kumar")."""
+    def norm(v: Any) -> str:
+        return " ".join(str(v or "").split()).casefold()
+    return norm(a["value"]) == norm(b["value"])
+
+
+def _repoint_supporters(conn: sqlite3.Connection, old_id: str, new_id_: str) -> None:
+    """Facts that supported `old_id` (closed against it with the same value) now support `new_id_`."""
+    conn.execute("UPDATE facts SET superseded_by = ? WHERE superseded_by = ? AND fact_id != ? AND value = "
+                 "(SELECT value FROM facts WHERE fact_id = ?)", (new_id_, old_id, new_id_, old_id))
+
+
+def _promote_supporter(conn: sqlite3.Connection, closed: dict[str, Any], doc_id: str) -> None:
+    """`closed` just lost its document: its strongest supporting fact (same value, closed against it) from a live
+    document that still verifies, or from the owner, reopens in its place (earliest `valid_from` on a tie), so a
+    value several sources state does not vanish when one of them does."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT f.* FROM facts f LEFT JOIN documents d ON d.doc_id = f.doc_id WHERE f.superseded_by = ? "
+        "AND (f.doc_id IS NULL OR (f.doc_id != ? AND d.removed_at IS NULL AND d.signature_status != 'invalid'))",
+        (closed["fact_id"], doc_id)).fetchall()]
+    rows = [r for r in rows if same_value(r, closed)]
+    if not rows:
+        return
+    best = max(sorted(rows, key=lambda r: r["valid_from"] or ""), key=fact_rank)  # max keeps the first on a tie
+    conn.execute("UPDATE facts SET valid_to = NULL, superseded_by = NULL WHERE fact_id = ?", (best["fact_id"],))
+    conn.execute("UPDATE facts SET superseded_by = ? WHERE fact_id != ? AND fact_id IN (%s)"
+                 % ", ".join("?" * len(rows)), (best["fact_id"], best["fact_id"], *[r["fact_id"] for r in rows]))
+
+
 def supersede_and_insert_fact(fact: dict[str, Any], today: str | None = None) -> list[dict[str, Any]]:
     """Insert one fact for `(entity_id, field)`, threading it into that field's open facts (`valid_to IS NULL
-    AND superseded_by IS NULL`), one transaction. Returns the existing facts this call closed (empty unless the
-    "already in effect" branch below fires) - their state just before closing, for a caller that wants to report
-    what a new value replaced (`memory.teach`'s `TeachResult.superseded`):
-    - a fact whose `valid_from` is strictly earlier than some existing open fact's is inserted already closed
-      against the nearest strictly-later one (an out-of-order, backdated ingest never disturbs a newer fact, and
-      closes nothing existing);
-    - a fact whose `valid_from` is not strictly earlier than any open fact's (later, or tied - two facts taught
-      the same day both default to today) and is already in effect (`valid_from <= today`) closes every open
-      fact that is not strictly later than it (`valid_to` = its own `valid_from`, `superseded_by` = its own id);
-      on a tie the new fact wins, since it is being recorded after the existing one either way;
-    - such a fact that is not yet in effect (scheduled) closes nothing: it is inserted open alongside the fact
-      it will eventually replace, so `current_fact` keeps returning the right one until that date arrives (and
-      picks the new one once it does, via its `ORDER BY valid_from DESC`)."""
+    AND superseded_by IS NULL`), one transaction. Returns the existing facts this call closed with a different
+    value - their state just before closing, for a caller that wants to report what a new value replaced
+    (`memory.teach`'s `TeachResult.superseded`).
+
+    The chain is over "blockers": every open fact, except that a high-confidence fact ignores low-confidence ones
+    (and closes them once it is in effect), so a vague "landlord = unknown" never outranks a grounded value.
+    `prior` is the blocker in force at the new fact's `valid_from` (greatest `valid_from` not after it),
+    `successor` the nearest strictly-later blocker.
+    - Supporting source: a fact with the same value as `prior` (`same_value`) is not a change. The stronger of
+      the two (`fact_rank`; the earlier on a tie, i.e. `prior`) stays open, the other is closed against it
+      (`superseded_by` = the stronger, `valid_to` = its own `valid_from`). A low-confidence fact arriving while a
+      high-confidence one is in force is closed against it the same way, whatever its value.
+    - Backdated: a fact strictly earlier than `successor` is inserted closed against it (it never disturbs a
+      newer fact) - unless it has `successor`'s value and outranks it, in which case it takes `successor`'s place
+      (a signed statement from June outranks a note restating the same rent in September, whichever arrives
+      first).
+    - Otherwise, a fact already in effect (`valid_from <= today`) closes every blocker not strictly later than it
+      (`valid_to` = its own `valid_from`, `superseded_by` = its own id); on a tie the new fact wins.
+    - A not-yet-effective (scheduled) fact closes nothing: it is inserted open alongside the fact it will
+      eventually replace, so `current_fact` keeps returning the right one until that date arrives (and picks the
+      new one once it does, via its `ORDER BY valid_from DESC`).
+    A closed fact's supporters follow it to whatever closed it only when that fact has the same value (they
+    support a value, not a row)."""
     today = today or date.today().isoformat()
     with connect() as conn:
-        open_rows = conn.execute(
+        open_rows = [dict(r) for r in conn.execute(
             "SELECT * FROM facts WHERE entity_id = ? AND field = ? AND valid_to IS NULL AND superseded_by IS NULL",
-            (fact["entity_id"], fact["field"])).fetchall()
+            (fact["entity_id"], fact["field"])).fetchall()]
+        high = fact.get("confidence") == "high"
+        blockers = [r for r in open_rows if r["confidence"] == "high"] if high else open_rows
+        weak = [r for r in open_rows if r["confidence"] != "high"] if high else []
         vf = fact["valid_from"] or ""
-        strictly_later = sorted((r for r in open_rows if (r["valid_from"] or "") > vf),
+        strictly_later = sorted((r for r in blockers if (r["valid_from"] or "") > vf),
                                 key=lambda r: r["valid_from"] or "")
-        not_later = [r for r in open_rows if (r["valid_from"] or "") <= vf]
+        not_later = [r for r in blockers if (r["valid_from"] or "") <= vf]
+        prior = max(not_later, key=lambda r: r["valid_from"] or "", default=None)
+        successor = strictly_later[0] if strictly_later else None
         row = dict(fact)
-        closed: list[dict[str, Any]] = []
-        if strictly_later:
-            successor = strictly_later[0]
+        to_close: list[tuple[dict[str, Any], str]] = []  # (open fact, its valid_to)
+        # a low-confidence fact always ranks below a high one, so this also covers "low while high is in force"
+        if prior is not None and (same_value(prior, fact) or prior["confidence"] == "high" and not high) \
+                and fact_rank(fact) <= fact_rank(prior):
+            row["valid_to"], row["superseded_by"] = vf, prior["fact_id"]
+        elif successor is not None and not (same_value(successor, fact) and fact_rank(fact) > fact_rank(successor)):
             row["valid_to"], row["superseded_by"] = successor["valid_from"], successor["fact_id"]
-        elif vf <= today and not_later:
-            conn.executemany("UPDATE facts SET valid_to = ?, superseded_by = ? WHERE fact_id = ?",
-                             [(vf, fact["fact_id"], r["fact_id"]) for r in not_later])
-            closed = [{**dict(r), "valid_to": vf, "superseded_by": fact["fact_id"]} for r in not_later]
+        else:
+            if successor is not None:  # outranks the later fact stating the same value: takes its place
+                to_close.append((successor, successor["valid_from"]))
+            if vf <= today:
+                to_close += [(r, vf) for r in not_later]
+                to_close += [(r, max(vf, r["valid_from"] or "")) for r in weak]
         conn.execute(f"INSERT INTO facts ({', '.join(_FACT_COLS)}) VALUES ({', '.join('?' * len(_FACT_COLS))})",
                      tuple(row.get(c) for c in _FACT_COLS))
+        closed: list[dict[str, Any]] = []
+        for r, valid_to in to_close:
+            conn.execute("UPDATE facts SET valid_to = ?, superseded_by = ? WHERE fact_id = ?",
+                         (valid_to, fact["fact_id"], r["fact_id"]))
+            if same_value(r, fact):
+                _repoint_supporters(conn, r["fact_id"], fact["fact_id"])
+            else:
+                closed.append({**r, "valid_to": valid_to, "superseded_by": fact["fact_id"]})
         return closed
 
 

@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from kavach.brain import extract, llm
+from kavach.brain import amounts, extract, llm
 from kavach.models import OWNER_ENTITY_ID
 
 
@@ -165,12 +165,104 @@ def test_facts_for_document_stops_on_llm_error_but_keeps_earlier_results(fresh_d
     assert stored == 1
 
 
-def test_facts_for_document_drops_a_fact_with_unparseable_valid_from(fresh_db, monkeypatch):
-    monkeypatch.setattr(extract, "extract", lambda text: extract.Extraction(facts=[
-        extract.XFact(field="rent_amount", value="15000", quote="Rent is 15000.", valid_from="sometime soon")]))
-    chunks = [_chunk("c_1", "Rent is 15000.")]
-    assert extract.facts_for_document("d_1", "note", "extracted", chunks, "2026-09-20T10:00:00Z") == 0
-    assert fresh_db.list_facts() == []
+@pytest.mark.parametrize("quote, expected", [
+    ("Landlord said rent goes to 16000 from January.", "2027-01-01"),  # the demo inbox note (27 Sep 2026)
+    ("Rent is 15000 starting March 2027.", "2027-03-01"),
+    ("New rent 16000 w.e.f. 01/02/2027.", "2027-02-01"),
+    ("Salary 70000 effective from 1 October 2026.", "2026-10-01"),
+    ("05/06/2026 UPI/RENT/RAVI KUMAR 14500", "2026-06-05"),  # a bank row: day first
+    ("[2026-09-18 19:42] Ravi Kumar: Yes, the current rent is 14500.", "2026-09-18"),  # a chat line
+    ("Date: 27 September 2026 Just got off the phone with Ravi Kumar.", "2026-09-27"),  # a full date, not "next September"
+    ("Rent is 15000.", "2026-09-27"),  # nothing stated: the reference date
+    ("The rent may go up.", "2026-09-27"),  # "may" is not a month without a start cue
+    ("Agreement from 1 April 2026 to 31 March 2027.", "2026-04-01"),
+])
+def test_valid_from_is_read_from_the_quote(quote, expected):
+    assert extract.valid_from_in_text(quote, date(2026, 9, 27)) == expected
+
+
+def test_facts_for_document_dates_the_inbox_note_from_its_quote(fresh_db, monkeypatch):
+    text = "# Inbox Note\n\nDate: 27 September 2026\n\nLandlord said rent goes to ₹16k from January."
+    monkeypatch.setattr(extract, "extract", lambda t: extract.Extraction(facts=[
+        extract.XFact(field="rent_amount", value="16000", quote="Landlord said rent goes to 16000 from January.")]))
+    extract.facts_for_document("d_1", "note", "extracted", [_chunk("c_1", text)], "2026-09-30T10:00:00Z")
+    assert fresh_db.list_facts()[0].valid_from == "2027-01-01"
+
+
+def test_facts_for_document_dates_a_chat_window_from_its_locator(fresh_db, monkeypatch):
+    monkeypatch.setattr(extract, "extract", lambda t: extract.Extraction(facts=[
+        extract.XFact(field="rent_amount", value="14500", quote="Ravi Kumar: Yes, the current rent is 14500.")]))
+    chunk = {"chunk_id": "c_1", "locator": "chat: 2026-09-18 19:42",
+             "text": "Ravi Kumar: Yes, the current rent is 14500."}
+    extract.facts_for_document("d_1", "chat", "extracted", [chunk], "2026-09-30T10:00:00Z")
+    assert fresh_db.list_facts()[0].valid_from == "2026-09-18"
+
+
+def test_placeholder_and_contact_details_are_not_names():
+    assert extract.clean_value("landlord", "unknown") is None
+    assert extract.clean_value("landlord", "N/A") is None
+    assert extract.clean_value("landlord", "ravi.landlord@example.com") is None
+    assert extract.clean_value("landlord", "98450 123456") is None
+    assert extract.clean_value("landlord", "Ravi Kumar") == "Ravi Kumar"
+
+
+# --- what a grounded quote actually states (real-model run on the demo vault, 30 Sep) ----------------------
+
+
+def test_a_chat_timestamp_does_not_ground_a_date():
+    quote = "[2026-09-21 11:15] Ananya Iyer: Can you also send me the agreement details?"
+    assert extract.grounding(quote, quote, "2026-09-21") == "low"
+    assert extract.grounding("Ends on 31 December 2026.", "Ends on 31 December 2026.", "2026-12-31") == "high"
+    x = extract.Extraction(facts=[extract.XFact(field="id_expiry", value="2026-09-21", quote=quote)])
+    assert extract.ground(x, quote) == []  # a low-confidence date is dropped, not stored "unsure"
+
+
+def test_a_date_value_is_not_its_own_valid_from(fresh_db, monkeypatch):
+    text = "Date: 1 April 2026. The agreement ends on 31 December 2026."
+    monkeypatch.setattr(extract, "extract", lambda t: extract.Extraction(facts=[
+        extract.XFact(field="agreement_end_date", value="2026-12-31", quote="The agreement ends on 31 December 2026.")]))
+    extract.facts_for_document("d_1", "note", "extracted", [_chunk("c_1", text)], "2026-09-30T10:00:00Z")
+    fact = fresh_db.list_facts()[0]
+    assert fact.value == "2026-12-31" and fact.valid_from == "2026-04-01"
+
+
+@pytest.mark.parametrize("field, value, quote, ok", [
+    ("rent_amount", "15000", "I will probably renew if the rent stays below 15000.", False),
+    ("rent_amount", "15000", "Renew only if rent stays under Rs 15000", False),
+    ("rent_amount", "14500", "[2026-09-18 19:48] Ravi Kumar: Yes, the current rent is 14500.", True),
+    ("monthly_income", "62000", "Average monthly salary credit: 62000", True),
+    ("employer", "Ravi Kumar", "Contacts: Ravi Kumar, Priya", False),
+    ("employer", "Nimbus Analytics", "SALARY CREDIT Nimbus Analytics", True),
+    ("landlord", "Ravi Kumar", "Landlord: Ravi Kumar", True),
+    ("landlord", "Ravi Kumar", "Just got off the phone with Ravi Kumar.", False),
+])
+def test_states_value(field, value, quote, ok):
+    assert extract.states_value(field, value, quote) is ok
+
+
+BANK_TEXT = ("Date Description Debit Credit Balance 2026-06-01 SALARY CREDIT Nimbus Analytics Pvt L 62,000.00 "
+             "80,250.00 2026-06-05 UPI/RENT/RAVI KUMAR 14,500.00 65,750.00 2026-07-05 UPI/RENT/RAVI KUMAR 14,500.00 "
+             "1,04,129.50 2026-07-12 CARD/GROCERIES AND UTILITIES 9,120.50 95,009.00")
+
+
+def test_bank_rent_facts_come_from_the_latest_rent_row():
+    facts = {f["field"]: f for f in extract.bank_rent_facts([_chunk("c_1", BANK_TEXT)])}
+    assert facts["rent_amount"]["value"] == "14500" and facts["rent_amount"]["valid_from"] == "2026-07-05"
+    assert facts["landlord"]["value"] == "Ravi Kumar"
+    quote = facts["rent_amount"]["quote"]
+    assert quote == "2026-07-05 UPI/RENT/RAVI KUMAR 14500"
+    assert extract.grounding(amounts.normalize_amounts(BANK_TEXT), quote, "14500") == "high"
+    assert extract.bank_rent_facts([_chunk("c_1", "2026-07-12 CARD/GROCERIES 9,120.50 95,009.00")]) == []
+
+
+def test_facts_for_document_takes_bank_rent_from_code_not_the_model(fresh_db, monkeypatch):
+    monkeypatch.setattr(extract, "extract", lambda t: extract.Extraction(facts=[
+        extract.XFact(field="rent_amount", value="65750", quote="14500 65750")]))  # a model misread: ignored
+    extract.facts_for_document("d_1", "pdf", "issuer_doc", [_chunk("c_1", BANK_TEXT)], "2026-09-30T10:00:00Z",
+                               doc_type="bank_statement")
+    facts = {f.field: f for f in fresh_db.list_facts()}
+    assert facts["rent_amount"].value == "14500" and facts["rent_amount"].source_type == "issuer_doc"
+    assert facts["landlord"].value == "Ravi Kumar"
 
 
 def test_facts_for_document_empty_chunks():
