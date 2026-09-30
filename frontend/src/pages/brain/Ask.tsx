@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react"
+import { Link } from "react-router"
+import { toast } from "sonner"
 import {
   AlertTriangle,
+  ArrowRight,
   ArrowUp,
+  CircleCheck,
+  CircleX,
   FileUp,
   Info,
   Laptop,
   Lightbulb,
+  Loader2,
   RotateCcw,
   Server,
   ShieldAlert,
@@ -29,6 +35,7 @@ import {
   footerText,
   formatMs,
   sourceMap,
+  storedView,
   type Block,
   type Turn,
 } from "./ask/answer"
@@ -100,8 +107,13 @@ function AnswerText({ blocks, sources, docs, muted, streaming }: {
   )
 }
 
-type CandidateState = Record<string, "accepted" | "discarded">
+type ChipState =
+  | { status: "saving"; remember: boolean }
+  | { status: "stored"; view: ReturnType<typeof storedView> }
+  | { status: "discarded" }
+type CandidateState = Record<string, ChipState>
 
+/** "Remember this?" after an answer: the owner's own statement, stored only on Yes (BUILD_PLAN §4.4). */
 function MemoryCandidates({ candidates, decided, onDecide }: {
   candidates: MemoryCandidate[]
   decided: CandidateState
@@ -112,6 +124,31 @@ function MemoryCandidates({ candidates, decided, onDecide }: {
     <div className="space-y-1.5">
       {candidates.map((c) => {
         const state = decided[c.candidate_id]
+        const label = candidateLabel(c)
+        if (state?.status === "stored") {
+          return (
+            <div key={c.candidate_id} className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/8 px-3 py-1.5 text-xs animate-in fade-in-0 duration-300">
+              <CircleCheck className="size-3.5 shrink-0 text-success" />
+              <span className="flex-1 font-medium">{state.view.text}</span>
+              {state.view.to && (
+                <Link to={state.view.to} className="inline-flex items-center gap-0.5 text-primary hover:underline">
+                  View in {state.view.where} <ArrowRight className="size-3" />
+                </Link>
+              )}
+            </div>
+          )
+        }
+        if (state?.status === "discarded") {
+          return (
+            <div key={c.candidate_id} className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground">
+              <CircleX className="size-3.5 shrink-0" />
+              <span className="flex-1">
+                Not saved: <span className="line-through decoration-muted-foreground/50">{label}</span>
+              </span>
+            </div>
+          )
+        }
+        const saving = state?.status === "saving"
         return (
           <div
             key={c.candidate_id}
@@ -119,11 +156,11 @@ function MemoryCandidates({ candidates, decided, onDecide }: {
           >
             <Lightbulb className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex-1 text-muted-foreground">
-              Remember {c.kind === "decision" ? "this decision" : candidateLabel(c)}?
+              Remember <span className="font-medium text-foreground">{label}</span>?
             </span>
-            {state ? (
-              <span className="font-medium text-muted-foreground">
-                {state === "accepted" ? "Remembered" : "Discarded"}
+            {saving ? (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" /> {state.remember ? "Saving…" : "Dismissing…"}
               </span>
             ) : (
               <>
@@ -367,10 +404,12 @@ export default function Ask() {
   }
 
   async function decideCandidate(id: string, remember: boolean) {
-    setDecided((d) => ({ ...d, [id]: remember ? "accepted" : "discarded" }))
+    setDecided((d) => ({ ...d, [id]: { status: "saving", remember } }))
     try {
-      await api.decideCandidate(id, remember)
-    } catch {
+      const { stored } = await api.decideCandidate(id, remember)
+      setDecided((d) => ({ ...d, [id]: remember ? { status: "stored", view: storedView(stored) } : { status: "discarded" } }))
+    } catch (e) {
+      toast.error(`Couldn't ${remember ? "save" : "dismiss"} that: ${e instanceof Error ? e.message : String(e)}`)
       setDecided((d) => {
         const next = { ...d }
         delete next[id]

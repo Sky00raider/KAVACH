@@ -1,7 +1,19 @@
 // Display logic for the Ask page, kept free of React so it can be unit tested.
 // The citation check itself runs on the server (brain/chat.py); this only mirrors its sentence and
 // citation parsing so the UI can place citation chips and mark the sentences the server flagged.
-import type { ChatDone, ChatFinal, ChatMeta, ChatTurn, Citation, ChunkRef, Document, IngestEvent, MemoryCandidate } from "@/api/client"
+import type {
+  CandidateDecisionOut,
+  ChatDone,
+  ChatFinal,
+  ChatMeta,
+  ChatTurn,
+  Citation,
+  ChunkRef,
+  Document,
+  IngestEvent,
+  MemoryCandidate,
+} from "@/api/client"
+import { fieldLabel, formatDate, formatValue, todayIso } from "../memory/memory"
 
 const CITE = /\[(\d+(?:\s*,\s*\d+)*)\]/g
 const SENTENCE_END = /(?<=[.!?])\s+(?=[A-Z"'(\[])|\n+/g
@@ -199,13 +211,23 @@ export function prettyText(text: string, context = text): string {
   })
 }
 
-/** "Remember rent amount = 16000, from 2027-01-01?" / "Remember this decision?" for the chip's question. */
-export function candidateLabel(c: MemoryCandidate): string {
-  if (c.kind === "fact" && c.field && c.value) {
-    const when = c.valid_from ? `, from ${c.valid_from}` : ""
-    return `${c.field.replaceAll("_", " ")} = ${c.value}${when}`
-  }
-  return c.statement
+/** "Rent: ₹16,000 from 1 Jan 2027" (no date when it holds from today). */
+function factText(field: string, value: string, validFrom: string | null | undefined, today: string): string {
+  const when = validFrom && validFrom > today ? ` from ${formatDate(validFrom)}` : ""
+  return `${fieldLabel(field)}: ${formatValue(field, value)}${when}`
+}
+
+/** The chip's question: "Rent: ₹16,000 from 1 Jan 2027" for a fact, the owner's own words for a decision. */
+export function candidateLabel(c: MemoryCandidate, today = todayIso()): string {
+  if (c.kind === "fact" && c.field && c.value) return factText(c.field, c.value, c.valid_from, today)
+  return `your decision “${c.statement.replace(/[.\s]+$/, "")}”`
+}
+
+/** What the chip says once the server has stored it (`CandidateDecisionOut.stored`), and where to see it. */
+export function storedView(stored: CandidateDecisionOut["stored"], today = todayIso()): { text: string; to?: string; where?: string } {
+  if (!stored) return { text: "Already handled" }
+  if ("field" in stored) return { text: `Remembered ${factText(stored.field, stored.value, stored.valid_from, today)}`, to: "/memory", where: "Memory" }
+  return { text: "Remembered your decision", to: "/vault", where: "Vault" }
 }
 
 export function basename(path: string): string {

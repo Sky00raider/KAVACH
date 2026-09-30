@@ -16,6 +16,7 @@ import {
   sourceParts,
   sourceMap,
   splitCitations,
+  storedView,
   timeAgo,
   type Turn,
 } from "./answer"
@@ -226,13 +227,25 @@ describe("candidateLabel", () => {
   const base = { candidate_id: "mc_1", statement: "By the way my rent went up to 16000 from January.",
     status: "pending", created_at: "2026-09-27T10:00:00Z" } as const
 
-  it("shows field, value and date for a fact candidate", () => {
+  it("shows field, value and date for a fact candidate, as the Memory page words them", () => {
     const c: MemoryCandidate = { ...base, kind: "fact", field: "rent_amount", value: "16000", valid_from: "2027-01-01" }
-    expect(candidateLabel(c)).toBe("rent amount = 16000, from 2027-01-01")
+    expect(candidateLabel(c, "2026-09-30")).toBe("Rent: ₹16,000 from 1 Jan 2027")
+    expect(candidateLabel({ ...c, field: "gym_fee", value: "1500", valid_from: "2026-09-30" }, "2026-09-30"))
+      .toBe("Gym fee: ₹1,500")  // holds from today: no date
   })
 
-  it("falls back to the statement for a decision candidate", () => {
+  it("quotes the owner's own words for a decision candidate", () => {
     const c: MemoryCandidate = { ...base, kind: "decision", statement: "Decided to renew the lease." }
-    expect(candidateLabel(c)).toBe("Decided to renew the lease.")
+    expect(candidateLabel(c)).toBe("your decision “Decided to renew the lease”")
+  })
+
+  it("says what was stored and where to see it", () => {
+    const fact = { fact_id: "f_1", entity_id: "e_owner", field: "rent_amount", value: "16000", source_type: "owner_stated",
+      valid_from: "2027-01-01", confidence: "high" } as const
+    expect(storedView(fact, "2026-09-30")).toEqual({ text: "Remembered Rent: ₹16,000 from 1 Jan 2027", to: "/memory",
+      where: "Memory" })
+    expect(storedView({ entity_id: "e_d", type: "DECISION", name: "Renew", attrs: {} }))
+      .toEqual({ text: "Remembered your decision", to: "/vault", where: "Vault" })
+    expect(storedView(null)).toEqual({ text: "Already handled" })
   })
 })
