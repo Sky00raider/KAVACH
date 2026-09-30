@@ -51,6 +51,30 @@ def fake_taught_map(text: str):
     return TaughtFact(field=field, value=value, valid_from=None)
 
 
+def fake_plan_map(instruction: str, today: str):
+    """Keyword stand-in for planner._propose's one model call: which tools the instruction names, the recipient
+    words after "email"/"mail"/"write to", the instruction as the date words. Resolution and validation still run."""
+    import re
+
+    from kavach.agent.planner import XPlan, XStep
+
+    low = instruction.lower()
+    steps = []
+    m = re.search(r"\b(?:email|mail|write to|message)\s+(.+?)(?:\s+(?:about|that|and|with|to say)\b|[,.]|$)", low)
+    if m:
+        steps.append(XStep(tool="draft_email", recipient=m.group(1), subject="Hello", body="Hi,\n\nJust checking in.",
+                           attach_proof="proof" in low))
+    if "remind" in low:
+        rel = "agreement_end_date" if "agreement ends" in low else ""
+        steps.append(XStep(tool="create_reminder", title="Reminder", date_text=instruction, relative_to=rel,
+                           days_before=7 if rel and "before" in low else 0))
+    if "form" in low:
+        steps.append(XStep(tool="fill_rental_form", form_fields=["full_name", "employer"]))
+    if "note" in low:
+        steps.append(XStep(tool="save_note", title="Note", markdown=instruction))
+    return XPlan(steps=steps)
+
+
 def fake_parse_map(text: str):
     """Keyword stand-in for parse_question's one model call. Normalisation and validation still run."""
     import re
@@ -93,3 +117,6 @@ def _no_ollama_outside_llm_tests(request, monkeypatch):
         monkeypatch.setattr(extract, "extract", lambda text: extract.Extraction())
         monkeypatch.setattr(memory, "_extract_candidates", lambda text: memory.CandidateExtraction())
         monkeypatch.setattr(memory, "_parse_taught", fake_taught_map)
+        from kavach.agent import planner
+
+        monkeypatch.setattr(planner, "_propose", fake_plan_map)
