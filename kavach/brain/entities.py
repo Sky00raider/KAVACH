@@ -2,7 +2,7 @@
 
 Private to BRAIN: ingest.py calls `index_document`, chat.py calls `find_in_question`.
 
-Extraction is one structured FAST_MODEL call per chunk (first MAX_EXTRACT_CHUNKS chunks of a document) returning
+Extraction is one structured FAST_MODEL call per chunk (the chunks `budget.model_chunks` picks) returning
 compact name lists per type, decisions as {quote, date}, contacts and relations (on the CPU laptop decode is the
 cost: ~11 tokens/s, and this shape needs about a third of the tokens of one object per entity). The model only
 proposes; plain code keeps what the chunk supports (`ground`):
@@ -66,13 +66,12 @@ import numpy as np
 from pydantic import BaseModel
 
 from kavach import config, db
-from kavach.brain import embed, llm
+from kavach.brain import budget, embed, llm
 from kavach.db import new_id
 from kavach.models import OWNER_ENTITY_ID, EdgeRel
 
 log = logging.getLogger(__name__)
 
-MAX_EXTRACT_CHUNKS = 8     # a long statement would otherwise cost minutes of CPU per document
 MATCH_MIN_COSINE = 0.72    # question vs entity-name embedding, for names not written out in the question
 MATCH_MAX = 3              # entities matched by embedding per question
 MIN_MATCH_CHARS = 3        # shorter names are only matched by embedding
@@ -599,7 +598,7 @@ def index_document(path: str, source: str, chunks: list[dict], links: list[tuple
                           "valid_to": None, "source_chunk_id": chunk_id})
 
     kept = dropped = off_type = 0
-    for chunk in chunks[:MAX_EXTRACT_CHUNKS]:
+    for chunk in budget.model_chunks(chunks, source):
         try:
             g = ground(extract(chunk["text"]), chunk["text"])
         except llm.LLMError as exc:

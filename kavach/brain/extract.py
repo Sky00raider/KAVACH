@@ -1,6 +1,6 @@
 """Structured facts + grounding check (BUILD_PLAN §4.4, BRAIN step 7).
 
-One structured FAST_MODEL call per chunk (first MAX_EXTRACT_CHUNKS, like entities.py) proposes
+One structured FAST_MODEL call per chunk (the chunks `budget.model_chunks` picks, like entities.py) proposes
 `{field ∈ EXTRACTED_FIELDS, value, quote, valid_from?}` triples about the owner (every EXTRACTED_FIELDS entry
 describes `e_owner` in this CONTRACT: income, marks, board, rent, employer...). Amounts are normalised in code
 before the model sees the chunk (`amounts.normalize_amounts`), so "₹15k" reads as "15000"; grounding and the
@@ -18,8 +18,10 @@ Grounding (plain code, never the model):
   names. A chat line's `[YYYY-MM-DD HH:MM]` stamp never counts as the quote stating a date.
 A bank statement's `rent_amount`/`landlord` and `monthly_income`/`employer` come from its latest `UPI/RENT/<name>`
 and `SALARY CREDIT <employer>` rows in code (`bank_row_facts`), not from the model.
-A document contributes at most one fact per field (first chunk to state it wins); a later document's fact for
-the same field goes through `db.supersede_and_insert_fact` (module docstring there covers the temporal rules).
+A document contributes at most one fact per field (first chunk to state it wins), except a WhatsApp chat: one per
+field per conversation window, since a chat is a dated conversation ("rent is 14,500" in August, "16,000 from
+January" in September are both kept, dated per window). Every fact goes through `db.supersede_and_insert_fact`
+(module docstring there covers the temporal rules).
 
 `valid_from` (also plain code, `valid_from_in_text`): read from the grounded quote, never from the model - a
 start cue before a date ("from January" in a September 2026 note -> 2027-01-01, the next January after the
@@ -39,13 +41,12 @@ from typing import Literal
 from pydantic import BaseModel
 
 from kavach import config, db
-from kavach.brain import amounts, entities, llm
+from kavach.brain import amounts, budget, entities, llm
 from kavach.db import new_id, utc_now
 from kavach.models import DISCLOSABLE_FIELDS, EXTRACTED_FIELDS, OWNER_ENTITY_ID, Confidence
 
 log = logging.getLogger(__name__)
 
-MAX_EXTRACT_CHUNKS = 8
 
 _MONTHS = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6, "july": 7, "august": 8,
            "september": 9, "october": 10, "november": 11, "december": 12,
@@ -409,7 +410,8 @@ def bank_row_facts(chunks: list[dict]) -> list[dict]:
 def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[dict], ingested_at: str, *,
                        doc_type: str | None = None, low_confidence: bool = False) -> int:
     """Extract, ground and store §4 facts for one freshly stored document (all on `e_owner`); returns facts
-    stored. At most one fact per field per document (first chunk to state it), only the fields its `doc_type`
+    stored. At most one fact per field per document (first chunk to state it; per window for a chat), only the
+    fields its `doc_type`
     can state (`allowed_fields`). `low_confidence` stores every fact as `low` (a signed document in someone else's
     name, CONTRACT §6.6: it must never displace the owner's own values). If Ollama fails, extraction stops (logged)
     and whatever was already found is kept."""
@@ -419,9 +421,12 @@ def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[
     today = date.today().isoformat()
     fields = allowed_fields(doc_type, source_type)
     seen_fields: set[str] = set()
+    stored = 0
 
     def store(cand: dict, valid_from: str) -> None:
+        nonlocal stored
         seen_fields.add(cand["field"])
+        stored += 1
         db.supersede_and_insert_fact({
             "fact_id": new_id("f"), "entity_id": OWNER_ENTITY_ID, "field": cand["field"], "value": cand["value"],
             "source_type": source_type, "doc_id": doc_id, "quote": cand["quote"], "valid_from": valid_from,
@@ -431,7 +436,9 @@ def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[
     if doc_type == "bank_statement":
         for cand in bank_row_facts(chunks):
             store(cand, cand["valid_from"])
-    for chunk in chunks[:MAX_EXTRACT_CHUNKS]:
+    for chunk in budget.model_chunks(chunks, source):
+        if source == "chat":
+            seen_fields = set()  # one fact per field per conversation window
         norm_text = amounts.normalize_amounts(chunk["text"])
         try:
             x = extract(norm_text)
@@ -445,4 +452,4 @@ def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[
                 if valid_from == cand["value"]:  # "ends 31 December 2026" is the value, not when it took effect
                     valid_from = chunk_ref.isoformat()
                 store(cand, valid_from)
-    return len(seen_fields)
+    return stored

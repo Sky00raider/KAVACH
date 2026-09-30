@@ -13,7 +13,7 @@ import pytest
 from test_ingest import _make_pdf, vault  # noqa: F401  (fixture)
 
 from kavach import config, db
-from kavach.brain import chat, embed, entities, ingest, llm
+from kavach.brain import budget, chat, embed, entities, ingest, llm
 from kavach.models import OWNER_ENTITY_ID, ScoredChunk, SignatureResult
 from kavach.trust import issuer_check
 
@@ -577,7 +577,7 @@ def test_ollama_down_keeps_ingest_and_links(vault, monkeypatch):
 
 
 def test_extraction_is_capped_per_document(vault, extractor, monkeypatch):
-    monkeypatch.setattr(E, "MAX_EXTRACT_CHUNKS", 2)
+    monkeypatch.setattr(budget, "MAX_DOC_CHUNKS", 2)
     monkeypatch.setattr(ingest, "chunk_text", lambda text: [f"part {i}" for i in range(5)])
     ingest.ingest_file(_write(vault.root, "notes/long.md", "long note"))
     assert extractor.calls == ["part 0", "part 1"]
