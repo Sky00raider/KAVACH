@@ -135,10 +135,11 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 ## DATA (§6.4)
 
 **Done**
-- (none)
+- Eval sets written in `eval/` (2026-09-30): A 15 (synthetic, all `"real": false`; 4+ need 2 sources, 5 about projects or decisions), B 15 (all synthetic; expectations derived from CONTRACT §5 and the vault, not from system output), D 5 (incl. one with no recipient in the vault, expecting no email), E 5 (incl. one "from January" case). Set C untouched (generated in code)
 
 **Next**
-- Sat 26: send vault files to an outside friend for eval set A (15 questions); redact the real bank statement into `private/`
+- Set A still needs the outside person's 15 questions (written from the vault files only, before they see the system); they replace the synthetic ones and go in as `"real": true`
+- Redact the real bank statement into `private/` and add 1-2 set B cases that use it (`"real": true`)
 - By Sun 27: `demo_data/notes/` (5-8 notes with `[[links]]`), `inbox_note.md`, `chats/landlord.txt`, rent agreement text in `demo_data/templates/`, details for mock bank statement, marksheet and ID card
 - By Mon 28, 6 pm: `docs/pitch/demo_script.md`, deck on organisers' template, test every screen, record demo video
 - Tue 29 to Thu 1: eval sets B-E, README final, rehearsals and Q&A prep

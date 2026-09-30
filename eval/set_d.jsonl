@@ -1,1 +1,5 @@
-
+{"id": "d01", "instruction": "Email my landlord that I will renew the agreement, and remind me a week before the agreement ends.", "expect_tools": ["draft_email", "create_reminder"], "expect_to": "ravi.landlord@example.com", "expect_date": "2026-12-24"}
+{"id": "d02", "instruction": "Write to Ravi Kumar and ask him to confirm when my security deposit will be returned.", "expect_tools": ["draft_email"], "expect_to": "ravi.landlord@example.com", "expect_date": null}
+{"id": "d03", "instruction": "Remind me on 15 January 2027 to renew my gym membership.", "expect_tools": ["create_reminder"], "expect_to": null, "expect_date": "2027-01-15"}
+{"id": "d04", "instruction": "Email my accountant about my tax filing.", "expect_tools": [], "expect_to": null, "expect_date": null}
+{"id": "d05", "instruction": "Email priya.mehta@example.com that I will share my documents soon, then remind me on 10 January 2027 to follow up with her.", "expect_tools": ["draft_email", "create_reminder"], "expect_to": "priya.mehta@example.com", "expect_date": "2027-01-10"}
