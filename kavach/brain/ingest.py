@@ -1,5 +1,8 @@
 """PDF / notes / WhatsApp -> documents + chunks + entities, edges and facts.
 
+A `.txt` in `chats/` that parses as a WhatsApp export (`parse_whatsapp`) is chunked by conversation window
+(`whatsapp_windows`), each window's locator its first message's time; any other `.txt` is plain text.
+
 Paths are stored vault-relative (CONTRACT §8). A changed file keeps its doc_id, gets new chunks and has its
 old facts and edges closed, never deleted. An unchanged file (same text_hash) is not re-chunked or re-embedded.
 Entities, edges (`entities.index_document`) and facts (`extract.facts_for_document`) are extracted after the
@@ -15,7 +18,8 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from kavach import config, db, textnorm
@@ -117,6 +121,78 @@ def chunk_text(text: str, size: int | None = None, overlap: int | None = None) -
     return chunks
 
 
+# --- WhatsApp exports (BUILD_PLAN §4.1) ------------------------------------------------------------------
+
+# Android "18/09/26, 19:42 - Name: text", iOS "[18/09/26, 19:42:10] Name: text"; 24 h or "7:42 pm"
+_WA_HEADER = re.compile(r"^\[?(\d{1,2})[/.](\d{1,2})[/.](\d{2}|\d{4}),?\s+(\d{1,2}):(\d{2})(?::\d{2})?"
+                        r"\s*([ap])?\.?\s?(m)?\.?\]?\s*(?:-\s+)?(.*)$", re.IGNORECASE)
+_WA_SENDER = re.compile(r"^([^:\n]{1,60}?):\s(.*)$", re.DOTALL)
+_WA_SKIP = re.compile(r"^(?:<media omitted>|this message was deleted|you deleted this message|null)$", re.IGNORECASE)
+_BIDI = re.compile("[‎‏‪-‮]")
+WA_WINDOW_GAP = timedelta(hours=6)  # a longer silence starts a new conversation window
+
+
+@dataclass
+class WaMessage:
+    ts: datetime
+    sender: str
+    text: str
+
+    def line(self) -> str:
+        return f"[{self.ts:%Y-%m-%d %H:%M}] {self.sender}: {self.text}"
+
+
+def parse_whatsapp(text: str) -> list[WaMessage]:
+    """Messages from a WhatsApp chat export, oldest first. A line that does not start a message continues the
+    previous one (multi-line messages); system lines (no "Name:"), media placeholders and deleted messages are
+    left out. Dates are day-first (the Indian export) unless a second field above 12 shows the file is month-first."""
+    raw: list[tuple[tuple[str, ...], list[str]]] = []  # (header groups, text lines)
+    for line in _BIDI.sub("", unicodedata.normalize("NFKC", text)).replace("\r\n", "\n").split("\n"):
+        m = _WA_HEADER.match(line.strip())
+        if m:
+            raw.append((m.groups()[:7], [m.group(8)]))
+        elif raw:
+            raw[-1][1].append(line.strip())
+    month_first = any(int(g[1]) > 12 for g, _ in raw)
+    out: list[WaMessage] = []
+    for (d1, d2, year, hh, mm, ampm, _m), lines in raw:
+        body = "\n".join(lines).strip()
+        s = _WA_SENDER.match(body)
+        if not s:
+            continue  # "Messages and calls are end-to-end encrypted", "X added Y"
+        msg = "\n".join(ln for ln in s.group(2).split("\n") if ln).strip()
+        if not msg or _WA_SKIP.match(msg):
+            continue
+        day, month = (int(d2), int(d1)) if month_first else (int(d1), int(d2))
+        hour = int(hh)
+        if ampm:
+            hour = hour % 12 + (12 if ampm.lower() == "p" else 0)
+        try:
+            ts = datetime(int(year) + (2000 if len(year) == 2 else 0), month, day, hour, int(mm))
+        except ValueError:
+            continue
+        out.append(WaMessage(ts=ts, sender=" ".join(s.group(1).split()), text=msg))
+    return out
+
+
+def whatsapp_windows(messages: list[WaMessage], size: int | None = None) -> list[tuple[str, str]]:
+    """[(locator, text)]: consecutive messages grouped into conversation windows, a new window after a silence
+    of WA_WINDOW_GAP or when the next line would pass `size` chars (then the last message is repeated at the
+    start of the next window, the chat equivalent of chunk overlap). Locator `chat: YYYY-MM-DD HH:MM` is the
+    window's first message; each line is `[YYYY-MM-DD HH:MM] Name: text`, so a quote carries its own date."""
+    size = size or config.CHUNK_SIZE
+    windows: list[list[WaMessage]] = []
+    for msg in messages:
+        cur = windows[-1] if windows else None
+        if cur is None or msg.ts - cur[-1].ts > WA_WINDOW_GAP:
+            windows.append([msg])
+        elif len("\n".join(m.line() for m in cur)) + 1 + len(msg.line()) > size:
+            windows.append([cur[-1], msg] if len(cur) > 1 and len(cur[-1].line()) + len(msg.line()) < size else [msg])
+        else:
+            cur.append(msg)
+    return [(f"chat: {w[0].ts:%Y-%m-%d %H:%M}", "\n".join(m.line() for m in w)) for w in windows]
+
+
 def _doc_type(source: DocSource, name: str, opening: str) -> str | None:
     if source == "note":
         return "note"
@@ -146,7 +222,11 @@ def _read(path: Path, source: DocSource) -> tuple[list[tuple[str, str]], str]:
         digest = textnorm.text_hash("\n".join(pages))  # == textnorm.pdf_text_hash(path), without a second parse
         return [(f"page {i}", textnorm.normalize_text(p)) for i, p in enumerate(pages, 1)], digest
     raw = path.read_text(encoding="utf-8-sig", errors="replace")
-    label = "note" if source == "note" else "chat"  # WhatsApp windows + timestamp locators arrive in step 11
+    if source == "chat":
+        messages = parse_whatsapp(raw)
+        if len(messages) >= 2:  # a WhatsApp export; any other .txt stays plain text
+            return whatsapp_windows(messages), textnorm.text_hash(raw)
+    label = "note" if source == "note" else "chat"
     return [(f"{label}: {path.name}", clean_text(raw))], textnorm.text_hash(raw)
 
 

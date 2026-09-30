@@ -184,12 +184,71 @@ def test_note_ingest(vault, fresh_db):
     assert chunk["locator"] == "note: rent.md" and chunk["text"] == "# Rent\n\nRent is ₹15,000."
 
 
-def test_chat_txt_ingests_as_plain_text_for_now(vault, fresh_db):
-    chat = vault.root / "chats" / "landlord.txt"
-    chat.write_text("14/08/26, 21:03 - Ramesh: Rent goes to 16k from January", encoding="utf-8")
+def test_non_whatsapp_txt_ingests_as_plain_text(vault, fresh_db):
+    chat = vault.root / "chats" / "todo.txt"
+    chat.write_text("Call the landlord about the deposit.\nBuy boxes.", encoding="utf-8")
     res = ingest.ingest_file(chat)
     assert res.source == "chat" and fresh_db.list_documents()[0].doc_type == "whatsapp"
-    assert _chunks(fresh_db, res.doc_id)[0]["locator"] == "chat: landlord.txt"
+    assert _chunks(fresh_db, res.doc_id)[0]["locator"] == "chat: todo.txt"
+
+
+# --- WhatsApp exports (BUILD_PLAN §4.1) -------------------------------------------------------------------
+
+ANDROID = """18/09/26, 19:40 - Messages and calls are end-to-end encrypted. Tap to learn more.
+18/09/26, 19:42 - Ananya Iyer: Hi Ravi, I wanted to ask about renewing the flat agreement.
+
+18/09/26, 19:48 - Ravi Kumar: Yes, the current rent is 14500.
+It includes maintenance.
+18/09/26, 19:49 - Ravi Kumar: <Media omitted>
+20/09/26, 18:21 - Ananya Iyer: I will probably renew if the rent stays below 15000.
+"""
+
+
+def test_parse_whatsapp_android_24h_multiline_and_system_lines():
+    msgs = ingest.parse_whatsapp(ANDROID)
+    assert [(m.ts.isoformat(), m.sender) for m in msgs] == [
+        ("2026-09-18T19:42:00", "Ananya Iyer"), ("2026-09-18T19:48:00", "Ravi Kumar"),
+        ("2026-09-20T18:21:00", "Ananya Iyer")]
+    assert msgs[1].text == "Yes, the current rent is 14500.\nIt includes maintenance."
+
+
+@pytest.mark.parametrize("line, iso", [
+    ("18/09/26, 7:42 pm - Ravi Kumar: hi", "2026-09-18T19:42:00"),
+    ("18/09/2026, 12:05 am - Ravi Kumar: hi", "2026-09-18T00:05:00"),
+    ("18/09/26, 12:05 PM - Ravi Kumar: hi", "2026-09-18T12:05:00"),  # newer exports: narrow no-break space
+    ("[18/09/26, 19:42:10] Ravi Kumar: hi", "2026-09-18T19:42:00"),  # iOS
+    ("‎[18/09/26, 7:42:10 PM] Ravi Kumar: hi", "2026-09-18T19:42:00"),
+])
+def test_parse_whatsapp_time_formats(line, iso):
+    [msg] = ingest.parse_whatsapp(line)
+    assert msg.ts.isoformat() == iso and msg.sender == "Ravi Kumar" and msg.text == "hi"
+
+
+def test_parse_whatsapp_month_first_file():
+    msgs = ingest.parse_whatsapp("9/18/26, 19:42 - A: one\n9/19/26, 08:00 - B: two")
+    assert [m.ts.date().isoformat() for m in msgs] == ["2026-09-18", "2026-09-19"]
+
+
+def test_whatsapp_windows_split_on_silence_and_size():
+    msgs = ingest.parse_whatsapp(ANDROID)
+    windows = ingest.whatsapp_windows(msgs)
+    assert [loc for loc, _ in windows] == ["chat: 2026-09-18 19:42", "chat: 2026-09-20 18:21"]
+    assert windows[0][1].splitlines()[0] == ("[2026-09-18 19:42] Ananya Iyer: Hi Ravi, I wanted to ask about "
+                                             "renewing the flat agreement.")
+    many = ingest.parse_whatsapp("\n".join(f"18/09/26, 10:{i:02d} - Ravi Kumar: {'word ' * 20}{i}"
+                                           for i in range(30)))
+    windows = ingest.whatsapp_windows(many, size=600)
+    assert len(windows) > 1 and all(len(text) <= 600 for _, text in windows)
+    first_lines = windows[0][1].splitlines()
+    assert windows[1][1].splitlines()[0] == first_lines[-1]  # the last message overlaps into the next window
+
+
+def test_whatsapp_ingest_uses_windows_and_dated_locators(vault, fresh_db):
+    chat = vault.root / "chats" / "landlord.txt"
+    chat.write_text(ANDROID, encoding="utf-8")
+    res = ingest.ingest_file(chat)
+    assert [c["locator"] for c in _chunks(fresh_db, res.doc_id)] == ["chat: 2026-09-18 19:42",
+                                                                     "chat: 2026-09-20 18:21"]
 
 
 def test_unchanged_file_is_not_reingested(vault, fresh_db):

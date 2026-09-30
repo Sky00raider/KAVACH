@@ -173,12 +173,22 @@ export function basename(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
 
-/** Chip label parts for a retrieved chunk: file name plus page for PDFs; notes and chats carry their name. */
+/**
+ * Chip label parts for a retrieved chunk: file name plus page for PDFs, file name plus the window's first
+ * message time for a WhatsApp chat (`chat: 2026-09-18 19:42`); other notes and chats carry their name.
+ */
 export function sourceParts(ref: ChunkRef, doc?: Document): { name: string; page?: string } {
   const page = ref.locator.match(/^page (\d+)$/)
   if (page) return doc ? { name: basename(doc.path), page: `p.${page[1]}` } : { name: ref.locator }
+  const chat = ref.locator.match(/^chat: (\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})$/)
+  if (chat) {
+    const when = `${Number(chat[3])} ${MONTHS[Number(chat[2]) - 1]} ${chat[4]}`
+    return doc ? { name: basename(doc.path), page: when } : { name: `chat ${when}` }
+  }
   return { name: ref.locator.replace(/^(note|chat): /, "") }
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 export function sourceLabel(ref: ChunkRef, doc?: Document): string {
   const { name, page } = sourceParts(ref, doc)

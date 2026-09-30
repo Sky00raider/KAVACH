@@ -161,6 +161,12 @@ describe("sourceLabel", () => {
     expect(sourceLabel(ref(1, "note: rent-renewal.md"))).toBe("rent-renewal.md")
     expect(sourceParts(ref(3), doc)).toEqual({ name: "rent_agreement.pdf", page: "p.3" })
   })
+  it("names a WhatsApp window by file and first message time", () => {
+    const chat = { doc_id: "d_2", path: "chats/landlord.txt" } as Document
+    expect(sourceParts(ref(1, "chat: 2026-09-18 19:42"), chat)).toEqual({ name: "landlord.txt", page: "18 Sep 19:42" })
+    expect(sourceLabel(ref(1, "chat: 2026-09-18 19:42"))).toBe("chat 18 Sep 19:42")
+    expect(sourceLabel(ref(1, "chat: notes.txt"))).toBe("notes.txt")
+  })
 })
 
 describe("mergeEvents", () => {
