@@ -245,14 +245,17 @@ BANK_TEXT = ("Date Description Debit Credit Balance 2026-06-01 SALARY CREDIT Nim
              "1,04,129.50 2026-07-12 CARD/GROCERIES AND UTILITIES 9,120.50 95,009.00")
 
 
-def test_bank_rent_facts_come_from_the_latest_rent_row():
-    facts = {f["field"]: f for f in extract.bank_rent_facts([_chunk("c_1", BANK_TEXT)])}
+def test_bank_row_facts_come_from_the_latest_rows():
+    facts = {f["field"]: f for f in extract.bank_row_facts([_chunk("c_1", BANK_TEXT)])}
     assert facts["rent_amount"]["value"] == "14500" and facts["rent_amount"]["valid_from"] == "2026-07-05"
     assert facts["landlord"]["value"] == "Ravi Kumar"
     quote = facts["rent_amount"]["quote"]
     assert quote == "2026-07-05 UPI/RENT/RAVI KUMAR 14500"
     assert extract.grounding(amounts.normalize_amounts(BANK_TEXT), quote, "14500") == "high"
-    assert extract.bank_rent_facts([_chunk("c_1", "2026-07-12 CARD/GROCERIES 9,120.50 95,009.00")]) == []
+    # the salary row gives income and employer (a truncated "Pvt L" suffix is cut, like the graph does)
+    assert facts["monthly_income"]["value"] == "62000" and facts["monthly_income"]["valid_from"] == "2026-06-01"
+    assert facts["employer"]["value"] == "Nimbus Analytics"
+    assert extract.bank_row_facts([_chunk("c_1", "2026-07-12 CARD/GROCERIES 9,120.50 95,009.00")]) == []
 
 
 def test_facts_for_document_takes_bank_rent_from_code_not_the_model(fresh_db, monkeypatch):

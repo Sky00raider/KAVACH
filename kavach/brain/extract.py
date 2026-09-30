@@ -16,8 +16,8 @@ Grounding (plain code, never the model):
   field's quote must carry a word for that relationship (employer: work/salary/company..., landlord:
   landlord/rent/lease...) or the fact is dropped; `clean_value` also rejects emails, links and phone numbers as
   names. A chat line's `[YYYY-MM-DD HH:MM]` stamp never counts as the quote stating a date.
-A bank statement's `rent_amount`/`landlord` come from its latest `UPI/RENT/<name>` row in code
-(`bank_rent_facts`), not from the model.
+A bank statement's `rent_amount`/`landlord` and `monthly_income`/`employer` come from its latest `UPI/RENT/<name>`
+and `SALARY CREDIT <employer>` rows in code (`bank_row_facts`), not from the model.
 A document contributes at most one fact per field (first chunk to state it wins); a later document's fact for
 the same field goes through `db.supersede_and_insert_fact` (module docstring there covers the temporal rules).
 
@@ -93,7 +93,7 @@ def grounding(text: str, quote: str | None, value: str) -> Confidence:
     if not quote or not quote_in_text(text, quote):
         return "low"
     body = _CHAT_STAMP.sub(" ", quote)
-    if _ISO_DATE.fullmatch(value.strip()) and any(d.isoformat() == value.strip() for _, _, d in _explicit_dates(body)):
+    if _ISO_DATE.fullmatch(value.strip()) and any(d.isoformat() == value.strip() for _, _, d in explicit_dates(body)):
         return "high"
     digits = re.sub(r"\D", "", value)
     if digits:
@@ -150,7 +150,7 @@ _START_CUE = re.compile(r"\b(?:from|starting|starts|start|effective|since|w\.?e\
                         r"(?:1st\s+(?:of\s+)?|first\s+of\s+)?$", re.IGNORECASE)
 
 
-def _explicit_dates(text: str) -> list[tuple[int, int, date]]:
+def explicit_dates(text: str) -> list[tuple[int, int, date]]:
     """(start, end, date) for every full calendar date in `text`: ISO, "12 March 2026", "March 12, 2026",
     "05/06/2026" (day first)."""
     out: list[tuple[int, int, date]] = []
@@ -177,7 +177,7 @@ def valid_from_in_text(text: str, reference: date) -> str:
        a September 2026 note -> 2027-01-01);
     2. the first full calendar date in the quote (a bank row's date, a chat message's timestamp);
     3. `reference` (the fact holds as of the document)."""
-    explicit = _explicit_dates(text)
+    explicit = explicit_dates(text)
     spans: list[tuple[int, str]] = [(s, d.isoformat()) for s, _, d in explicit]
     for m in _BARE_MONTH.finditer(text):
         if not any(s <= m.start() < e for s, e, _ in explicit):
@@ -303,7 +303,8 @@ def clean_value(field: str, value: str) -> str | None:
 # board: the real-model run above also produced `board = "Ravi Kumar"` from one, as a high-confidence issuer_doc
 # fact decide.py would have attested from. An issuer-signed PDF of unknown type gives no disclosable field.
 DOC_FIELDS: dict[str, frozenset[str]] = {
-    # rent_amount and landlord come from the statement's rent rows in code (`bank_rent_facts`), never the model
+    # rent/landlord come from the statement's rows in code (`bank_row_facts`), never the model; income/employer
+    # too when a SALARY CREDIT row exists (stored first, so the model's reading is only a fallback for other layouts)
     "bank_statement": frozenset({"monthly_income", "loan_default_12m", "employer"}),
     "marksheet": frozenset({"percentage", "result", "board", "date_of_birth"}),
     "id_card": frozenset({"date_of_birth", "id_expiry"}),
@@ -340,22 +341,34 @@ def ground(x: Extraction, text: str, fields: frozenset[str] = frozenset(EXTRACTE
     return out
 
 
-_RENT_ROW = re.compile(r"(\d{4}-\d{2}-\d{2})\s+UPI/RENT/([^\d/]+?)\s+(\d+)\b", re.IGNORECASE)
+# (row pattern, amount field, counterparty field, counterparty entity type)
+_BANK_ROWS = (
+    (re.compile(r"(\d{4}-\d{2}-\d{2})\s+UPI/RENT/([^\d/]+?)\s+(\d+)\b", re.IGNORECASE),
+     "rent_amount", "landlord", "PERSON"),
+    (re.compile(r"(\d{4}-\d{2}-\d{2})\s+SALARY\s+CREDIT\s+(?:FROM\s+)?([^\d/]+?)\s+(\d+)\b", re.IGNORECASE),
+     "monthly_income", "employer", "ORG"),
+)
 
 
-def bank_rent_facts(chunks: list[dict]) -> list[dict]:
-    """`rent_amount` and `landlord` from a bank statement's latest `UPI/RENT/<name> <amount>` row, parsed in code
-    (the model skipped these rows on one real run and read them on another). The quote is the row as it appears
-    in the amounts-normalised chunk text, so it grounds exactly like a model fact; `valid_from` is the row's date."""
-    rows = [(m, chunk) for chunk in chunks for m in _RENT_ROW.finditer(amounts.normalize_amounts(chunk["text"]))]
-    if not rows:
-        return []
-    m, _chunk = max(rows, key=lambda r: r[0].group(1))
-    quote = " ".join(m.group(0).split())
-    name = entities.display_name("PERSON", " ".join(m.group(2).split()))
-    return [{"field": "rent_amount", "value": m.group(3), "quote": quote, "confidence": "high",
-             "valid_from": m.group(1)},
-            {"field": "landlord", "value": name, "quote": quote, "confidence": "high", "valid_from": m.group(1)}]
+def bank_row_facts(chunks: list[dict]) -> list[dict]:
+    """From a bank statement's latest `UPI/RENT/<name> <amount>` row: `rent_amount` + `landlord`; from its latest
+    `SALARY CREDIT <employer> <amount>` row: `monthly_income` + `employer`. Parsed in code (on real runs the model
+    read the rent row once and skipped it the next time, and never stated the employer). The quote is the row as
+    it appears in the amounts-normalised chunk text, so it grounds exactly like a model fact; `valid_from` is the
+    row's date."""
+    out: list[dict] = []
+    texts = [amounts.normalize_amounts(chunk["text"]) for chunk in chunks]
+    for pattern, amount_field, party_field, party_type in _BANK_ROWS:
+        rows = [m for text in texts for m in pattern.finditer(text)]
+        if not rows:
+            continue
+        m = max(rows, key=lambda r: r.group(1))
+        quote = " ".join(m.group(0).split())
+        name = entities.display_name(party_type, " ".join(m.group(2).split()))
+        out += [{"field": amount_field, "value": m.group(3), "quote": quote, "confidence": "high",
+                 "valid_from": m.group(1)},
+                {"field": party_field, "value": name, "quote": quote, "confidence": "high", "valid_from": m.group(1)}]
+    return out
 
 
 # --- public (BRAIN step 7, called from ingest.py) ------------------------------------------------------
@@ -382,7 +395,7 @@ def facts_for_document(doc_id: str, source: str, source_type: str, chunks: list[
             "valid_to": None, "superseded_by": None, "confidence": cand["confidence"], "created_at": utc_now()}, today)
 
     if doc_type == "bank_statement":
-        for cand in bank_rent_facts(chunks):
+        for cand in bank_row_facts(chunks):
             store(cand, cand["valid_from"])
     for chunk in chunks[:MAX_EXTRACT_CHUNKS]:
         norm_text = amounts.normalize_amounts(chunk["text"])
