@@ -1,8 +1,10 @@
 """Identity anchor and holder check (CONTRACT §6.6). Plain code, no model.
 
-A signature proves who issued a document, not whose it is. The anchor is the owner's name and date of birth, read
-from the first issuer-signed ID card of an identity issuer (`IDENTITY_ISSUERS`) and pinned in the `identity` table;
-with none, `config.OWNER_NAME` without a date of birth (`not_verified`). `holder_status` checks a signed document's
+A signature proves who issued a document, not whose it is. The anchor is the owner's name and date of birth: from
+their UIDAI Aadhaar offline e-KYC (`import_aadhaar`, verified by `trust.aadhaar`), else from the first issuer-signed
+ID card of an identity issuer (`IDENTITY_ISSUERS`), pinned in the `identity` table; with neither,
+`config.OWNER_NAME` without a date of birth (`not_verified`). A live Aadhaar anchor has no document, so no ID card
+pins or retires it. `holder_status` checks a signed document's
 text against it: the name right after the document type's holder label ("Account holder:", "Candidate:",
 "Name:"; the first such label decides, anywhere in the text when there is none), then any date of birth it states.
 
@@ -22,6 +24,7 @@ from datetime import date
 from kavach import config, db
 from kavach.db import new_id, utc_now
 from kavach.models import HolderStatus, Identity
+from kavach.trust import aadhaar, audit
 
 IDENTITY_ISSUERS = frozenset({"mock_govt"})
 
@@ -107,10 +110,13 @@ def parse_date(text: str) -> str | None:
 
 
 def _dob_status(text: str, dob: str | None) -> HolderStatus:
-    """Every date of birth the document states must be the anchor's; `unknown` if one cannot be read."""
+    """Every date of birth the document states must be the anchor's (only its year when the anchor has just a year,
+    as some Aadhaar records do); `unknown` if one cannot be read."""
     if dob is None:
         return "verified"
     stated = [parse_date(_value_after(text, m.end())[:40]) for m in _DOB_LABEL.finditer(text)]
+    if len(dob) == 4:
+        stated = [d[:4] if d else None for d in stated]
     if any(d is not None and d != dob for d in stated):
         return "mismatch"
     return "unknown" if None in stated else "verified"
@@ -186,8 +192,26 @@ def holder_status(text: str, doc_type: str | None) -> HolderStatus:
     return check(text, doc_type, a.name, a.dob)
 
 
+def import_aadhaar(zip_bytes: bytes, share_code: str) -> Identity:
+    """Verify the owner's offline e-KYC ZIP and make it the anchor; audit either way (never a value), then recheck
+    every signed document against it. Raises `aadhaar.AadhaarError`."""
+    try:
+        found = aadhaar.verify_okyc(zip_bytes, share_code)
+    except aadhaar.AadhaarError as exc:
+        audit.log("identity_verify_failed", None, {"source": "aadhaar_okyc", "reason": exc.reason})
+        raise
+    identity_id, now = new_id("id"), utc_now()
+    db.set_identity({"identity_id": identity_id, "source": "aadhaar_okyc", "issuer": aadhaar.ISSUER, "name": found.name,
+                     "dob": found.dob, "last4": found.last4, "doc_id": None, "verified_at": now, "removed_at": None})
+    audit.log("identity_verified", identity_id, {"source": "aadhaar_okyc", "issuer": aadhaar.ISSUER, "verified_at": now})
+    from kavach.brain import ingest  # ingest imports this module
+
+    ingest.recheck_holders()
+    return current()
+
+
 def current() -> Identity:
-    """The anchor, masked: initials and year of birth only."""
+    """The anchor, masked: initials and year of birth only (never the last 4 digits)."""
     a = anchor()
     return Identity(status="not_verified" if a.source == "config" else "verified", source=a.source,
                     issuer=a.issuer, name_initials=initials(a.name),

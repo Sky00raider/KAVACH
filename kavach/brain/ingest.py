@@ -266,7 +266,7 @@ def _anchor_left(doc_id: str) -> bool:
     return True
 
 
-def _recheck_holders(skip: str) -> None:
+def recheck_holders(skip: str | None = None) -> None:
     """The anchor changed: every other live signed document goes through `ingest_file` again, which re-checks its
     holder (and re-extracts it only when that changes what its facts can be)."""
     for d in db.signed_documents():
@@ -324,7 +324,7 @@ def ingest_file(path: Path) -> IngestResult:
             if sig.status == "invalid":
                 db.close_document_knowledge(doc_id, closed_on=date.today().isoformat())
         if anchor_changed:
-            _recheck_holders(skip=doc_id)
+            recheck_holders(skip=doc_id)
         return IngestResult(path=rel, doc_id=doc_id, source=source, signature_status=sig.status, holder_status=holder)
 
     chunks = [{"chunk_id": new_id("c"), "locator": locator, "text": piece}
@@ -367,7 +367,7 @@ def ingest_file(path: Path) -> IngestResult:
     audit.log("ingested", doc_id, result.model_dump(include={"path", "doc_id", "signature_status", "holder_status",
                                                              "chunks_added", "entities_added", "facts_added"}))
     if anchor_changed:
-        _recheck_holders(skip=doc_id)
+        recheck_holders(skip=doc_id)
     return result
 
 
@@ -382,5 +382,5 @@ def remove_file(path: Path) -> None:
     embed.invalidate()
     audit.log("document_removed", row["doc_id"], {"path": rel, "doc_id": row["doc_id"]})
     if _anchor_left(row["doc_id"]):
-        _recheck_holders(skip=row["doc_id"])
+        recheck_holders(skip=row["doc_id"])
     return None

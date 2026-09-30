@@ -138,6 +138,13 @@ export const api = {
   ingestEvents: (since = 0) => get<IngestEvents>("/api/ingest/events", { since }),
   documents: () => get<Document[]>("/api/documents"),
   identity: () => get<Identity>("/api/identity"),
+  /** CONTRACT §6.6: the owner's UIDAI offline e-KYC ZIP + share code; 400/422 carry the reason as `detail`. */
+  importAadhaar: (file: File, shareCode: string) => {
+    const form = new FormData()
+    form.append("file", file)
+    form.append("share_code", shareCode)
+    return call<Identity>("POST", "/api/identity/aadhaar", { form, owner: true })
+  },
   entities: (type?: string) => get<Entity[]>("/api/entities", { type }),
   facts: (opts: { field?: string; current?: boolean } = {}) => get<Fact[]>("/api/facts", opts),
   graph: (opts: { entity_id?: string; hops?: number } = {}) => get<Graph>("/api/graph", opts),

@@ -109,6 +109,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/identity/aadhaar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Identity Aadhaar
+         * @description CONTRACT §6.6: the owner's UIDAI offline e-KYC ZIP + share code. Read in memory; never written or echoed.
+         */
+        post: operations["identity_aadhaar_api_identity_aadhaar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/entities": {
         parameters: {
             query?: never;
@@ -527,7 +547,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "ingested" | "document_signature_failed" | "document_removed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected";
+            event: "ingested" | "document_signature_failed" | "document_removed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected" | "identity_verified" | "identity_verify_failed";
             /** Ref Id */
             ref_id?: string | null;
             /** Detail */
@@ -547,6 +567,13 @@ export interface components {
             chain_intact: boolean;
             /** Broken At */
             broken_at?: number | null;
+        };
+        /** Body_identity_aadhaar_api_identity_aadhaar_post */
+        Body_identity_aadhaar_api_identity_aadhaar_post: {
+            /** File */
+            file: string;
+            /** Share Code */
+            share_code: string;
         };
         /** Body_ingest_upload_api_ingest_post */
         Body_ingest_upload_api_ingest_post: {
@@ -1021,7 +1048,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "signed_id" | "config";
+            source: "aadhaar_okyc" | "signed_id" | "config";
             /** Issuer */
             issuer?: string | null;
             /** Name Initials */
@@ -1532,6 +1559,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Identity"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    identity_aadhaar_api_identity_aadhaar_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-owner-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_identity_aadhaar_api_identity_aadhaar_post"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

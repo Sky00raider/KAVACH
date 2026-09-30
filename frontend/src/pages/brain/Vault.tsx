@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react"
 import { api, type Document, type Entity, type Graph, type Identity } from "@/api/client"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePoll } from "@/api/poll"
 import { Page } from "@/components/shared/Page"
 import { Button } from "@/components/ui/button"
@@ -27,6 +28,7 @@ import { cn } from "@/components/lib/utils"
 import { basename, timeAgo } from "./ask/answer"
 import { useIngest } from "./ask/IngestStrip"
 import { SourceIcon, SourcePopover } from "./ask/Sources"
+import { aadhaarErrorText, identityView } from "./identity"
 import { clearLastAnswer, loadLastAnswer, type LastAnswer } from "./lastAnswer"
 import {
   DEFAULT_HIDDEN_TYPES,
@@ -38,7 +40,6 @@ import {
   displayName,
   docEntityIds,
   docFilterNotice,
-  issuerName,
   neighbours,
   relLabel,
   signatureView,
@@ -87,27 +88,86 @@ function SignaturePill({ doc }: { doc: Document }) {
   )
 }
 
-/** Whose documents count as the owner's (CONTRACT §6.6): the signed ID's holder, or the configured name. */
-function IdentityLine({ identity }: { identity?: Identity }) {
-  if (!identity) return null
-  const verified = identity.status === "verified"
-  const Icon = verified ? BadgeCheck : ShieldQuestion
+/** Import the owner's UIDAI offline e-KYC ZIP. The file and share code go only to the local owner API. */
+function AadhaarDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [code, setCode] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const reset = () => {
+    setFile(null)
+    setCode("")
+    setError(null)
+  }
+  const submit = async () => {
+    if (!file || !code) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.importAadhaar(file, code)
+      reset()
+      onOpenChange(false)
+      onDone()
+    } catch (e) {
+      setError(aadhaarErrorText(e))
+    } finally {
+      setBusy(false)
+      setCode("")
+    }
+  }
   return (
-    <p
-      className="mx-1.5 mb-0.5 flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] text-muted-foreground"
+    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o) }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Verify with Aadhaar</DialogTitle>
+          <DialogDescription>
+            Choose the offline e-KYC ZIP you downloaded from myAadhaar and type its share code. KAVACH checks UIDAI's
+            signature on this laptop and keeps only your name, date of birth and the last 4 digits; never the photo,
+            address or the file.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void submit() }}>
+          <Input type="file" accept=".zip,application/zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <Input type="password" autoComplete="off" placeholder="Share code" value={code}
+            onChange={(e) => setCode(e.target.value)} maxLength={64} />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="submit" disabled={!file || !code || busy}>
+              {busy && <Loader2 className="size-4 animate-spin" />} Verify
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Whose documents count as the owner's (CONTRACT §6.6): UIDAI's record, the signed ID's holder, or the configured
+ * name. Masked: initials and year of birth only. */
+function IdentityLine({ identity, onChanged }: { identity?: Identity; onChanged: () => void }) {
+  const [open, setOpen] = useState(false)
+  if (!identity) return null
+  const v = identityView(identity)
+  const Icon = v.tone === "unverified" ? ShieldQuestion : BadgeCheck
+  return (
+    <div
+      className="mx-1.5 mb-0.5 flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px] text-muted-foreground"
       title="Signed documents count as yours only when they are in this name"
     >
-      <Icon className={cn("size-3.5 shrink-0", verified ? "text-success" : "text-warning")} />
-      {verified ? (
-        <span>
-          You: <span className="font-medium text-foreground">{identity.name_initials}</span>
-          {identity.birth_year ? `, born ${identity.birth_year}` : ""}, from your ID signed by{" "}
-          {identity.issuer ? issuerName(identity.issuer) : "an issuer"}
+      <Icon className={cn("size-3.5 shrink-0", v.tone === "unverified" ? "text-warning" : "text-success")} />
+      <span className="min-w-0 flex-1">
+        <span className={cn("font-medium", v.tone === "uidai" ? "text-success" : "text-foreground")}>
+          {v.title}{v.tone === "uidai" ? " ✓" : ""}
         </span>
-      ) : (
-        <span>Identity not verified: add your signed ID. Using the configured name ({identity.name_initials})</span>
+        {v.detail && <span className="block">{v.detail}</span>}
+      </span>
+      {v.tone !== "uidai" && (
+        <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => setOpen(true)}>
+          Verify with Aadhaar
+        </Button>
       )}
-    </p>
+      <AadhaarDialog open={open} onOpenChange={setOpen} onDone={onChanged} />
+    </div>
   )
 }
 
@@ -439,7 +499,7 @@ export default function Vault() {
               <p className="p-3 text-sm text-destructive">Could not load documents: {documents.error.message}</p>
             ) : (
               <>
-              <IdentityLine identity={identity.data} />
+              <IdentityLine identity={identity.data} onChanged={() => { identity.refresh(); documents.refresh() }} />
               <DocumentList docs={documents.data ?? []} counts={docCounts} active={docId} onPick={(id) => setDocId((cur) => (cur === id ? null : id))} />
               </>
             )}

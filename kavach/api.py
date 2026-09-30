@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -70,7 +70,7 @@ from kavach.models import (
     ToolResult,
     WalletStatus,
 )
-from kavach.trust import audit, consent, pairing, wallet
+from kavach.trust import aadhaar, audit, consent, pairing, wallet
 
 LOOPBACK = frozenset({"127.0.0.1", "::1"})
 LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
@@ -286,6 +286,16 @@ def documents() -> list[Document]:
 @owner.get("/identity")
 def identity_anchor() -> Identity:
     return identity.current()
+
+
+@owner.post("/identity/aadhaar")
+async def identity_aadhaar(file: UploadFile, share_code: str = Form(..., max_length=64)) -> Identity:
+    """CONTRACT §6.6: the owner's UIDAI offline e-KYC ZIP + share code. Read in memory; never written or echoed."""
+    content = await file.read(aadhaar.MAX_ZIP_BYTES + 1)
+    try:
+        return identity.import_aadhaar(content, share_code)
+    except aadhaar.AadhaarError as exc:
+        raise HTTPException(422 if exc.reason == "bad_signature" else 400, exc.reason) from None
 
 
 @owner.get("/entities")

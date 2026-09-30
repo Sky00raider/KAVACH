@@ -79,6 +79,10 @@ export function fixtureResponse(method: string, url: string, body?: unknown): un
 
   if (method === "POST") {
     if (path === "/api/chat") return fixture("chat")
+    if (path === "/api/identity/aadhaar") {
+      return { ...fixture<S["Identity"]>("identity"), source: "aadhaar_okyc", issuer: "uidai", doc_id: null,
+        verified_at: now() } satisfies S["Identity"]
+    }
     if (path === "/api/tasks") return fixture("task_planned")
     if (path === "/api/ingest") {
       const file = body instanceof FormData ? body.get("file") : null
