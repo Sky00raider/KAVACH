@@ -25,7 +25,8 @@ app = FastAPI(title="KAVACH requester")
 @app.get("/r/identity")
 def identity() -> RIdentity:
     ident = common.Identity("web")
-    return RIdentity(name=ident.name, type=ident.type, fingerprint=ident.fingerprint, owner_url=config.OWNER_URL)
+    return RIdentity(name=ident.name, type=ident.type, fingerprint=ident.fingerprint, owner_url=config.OWNER_URL,
+                     owner_reachable=common.owner_reachable())
 
 
 @app.post("/r/ask")

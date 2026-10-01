@@ -99,6 +99,15 @@ def owner_client() -> httpx.Client:
     return httpx.Client(base_url=config.OWNER_URL, timeout=httpx.Timeout(60.0, connect=5.0))
 
 
+def owner_reachable(timeout_s: float = 2.0) -> bool:
+    """The owner API answers `GET /api/claims` with 200 within `timeout_s` (requester-facing, no auth)."""
+    try:
+        with owner_client() as client:
+            return client.get("/api/claims", timeout=timeout_s).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
 class OwnerError(Exception):
     pass
 

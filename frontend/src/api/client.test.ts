@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { api, chatStream, probeOwner, requesterApi, type ChatStreamHandlers } from "./client"
+import { api, chatStream, requesterApi, type ChatStreamHandlers } from "./client"
 import { chatStreamEvents, fixtures, GET_FIXTURES, OTHER_FIXTURES } from "./fixtures"
 
 const FIXTURE_DIR = path.resolve(__dirname, "../../../fixtures/api")
@@ -95,10 +95,6 @@ describe("fixture mode", () => {
     expect(events[0][0]).toBe("meta")
     expect(events.at(-1)![0]).toBe("done")
   })
-
-  it("probeOwner reports reachable", async () => {
-    expect(await probeOwner("http://192.168.1.20:8000")).toBe(true)
-  })
 })
 
 describe("live mode", () => {
@@ -164,10 +160,5 @@ describe("live mode", () => {
     rec = recorder()
     await chatStream("q", [], rec.handlers)
     expect(rec.events.at(-1)).toEqual(["error", { message: "chat stream ended before 'done'" }])
-  })
-
-  it("probeOwner is false when the owner does not answer", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("network"))))
-    expect(await probeOwner("http://10.0.0.9:8000")).toBe(false)
   })
 })

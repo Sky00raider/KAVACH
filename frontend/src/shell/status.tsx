@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { api, probeOwner, requesterApi } from "@/api/client"
+import { api, requesterApi } from "@/api/client"
 import { usePoll } from "@/api/poll"
 import { loadHealth, saveHealth } from "./lastHealth"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -98,19 +98,18 @@ export function OwnerHealth() {
   )
 }
 
-/** Requester mode: which owner this laptop talks to, and whether it answers. */
+/** Requester mode: which owner this laptop talks to, and whether it answers (checked by the requester backend). */
 export function OwnerConnection() {
-  const identity = usePoll(requesterApi.identity, null)
+  const identity = usePoll(requesterApi.identity, OWNER_PROBE_MS)
   const ownerUrl = identity.data?.owner_url
-  const reachable = usePoll(() => (ownerUrl ? probeOwner(ownerUrl) : Promise.resolve(null)), OWNER_PROBE_MS, [ownerUrl])
   let level: Level = "unknown"
   let subtitle = "checking…"
   if (identity.error) {
     level = "down"
     subtitle = "requester backend unreachable"
-  } else if (ownerUrl && reachable.data !== undefined && reachable.data !== null) {
-    level = reachable.data ? "ok" : "down"
-    subtitle = reachable.data ? "reachable" : "unreachable"
+  } else if (identity.data) {
+    level = identity.data.owner_reachable ? "ok" : "down"
+    subtitle = identity.data.owner_reachable ? "reachable" : "unreachable"
   }
   const host = ownerUrl ? ownerUrl.replace(/^https?:\/\//, "") : "owner"
   return (

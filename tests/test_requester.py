@@ -68,6 +68,15 @@ def test_identity_is_stable_and_key_never_served(client):
     assert crypto.b64e((common.DATA_DIR / "web.key").read_bytes()) not in json.dumps(storage.model_dump())
 
 
+def test_identity_says_the_owner_is_unreachable(client):
+    assert client.get("/r/identity").json()["owner_reachable"] is False   # OWNER_URL points at a closed port
+
+
+def test_identity_says_the_owner_is_reachable(laptops):
+    _, landlord = laptops
+    assert landlord.get("/r/identity").json()["owner_reachable"] is True   # the in-process owner API answers
+
+
 def test_ask_without_owner_is_502(client):
     r = client.post("/r/ask", json={"question": "Earns 50k?"})
     assert r.status_code == 502 and "unreachable" in r.json()["detail"]

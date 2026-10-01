@@ -130,13 +130,12 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 - 15. `scripts/run_eval.py` set C no longer needs Ollama: the claim for the attacked requests is fixed in code (the attacks test the trust layer, not parsing). Before, with Ollama stopped or no model pulled the genuine request was auto-refused and the set crashed on a missing `proofs.json`. Measured 30 Sep on a laptop with no models: 6/6 blocked, chain intact. `tests/test_scripts.py` runs the set with the model call raising
 - 16. `scripts/requester_preflight.py` for the two-laptop demo, run on the requester laptop (`--owner http://<owner-ip>:8000`): frontend built, issuer trust list present (prints each issuer key fingerprint; warns when it is this laptop's own list while the owner is remote; `--fingerprints` on the owner laptop prints the ones to compare), owner API reachable, clock skew from the owner's `Date` header (warn > 30 s, fail > 90 s; requests are rejected beyond 120 s), gate port open, and earlier requests or a pinned owner key left over (`--reset` removes `requests.json`, `nonces.json`, `proofs.json`, `owner_keys.json`; keys, identity and trust list stay). A pin from another owner database is never replaced, so without the reset every owner-attested answer fails "Owner signature". The requester side makes no model calls: that laptop needs no Ollama. `tests/test_scripts.py`
 - 14. `api.py` maps `brain.llm.LLMError` to `503 {"detail": "local model unavailable: ..."}` on every route (chat, memory, tasks)
+- 12. (done by BRAIN on the owner's instruction, 1 Oct; CONTRACT §12/§14 approved by the owner) `/r/identity` returns `owner_reachable`: `requester/common.owner_reachable` GETs `{OWNER_URL}/api/claims` (200 within 2 s) on every call; the requester status row polls `/r/identity` every 5 s and the browser no-cors probe (`probeOwner`) is gone. `tests/test_requester.py`
 - 17. (done by BRAIN on the owner's instruction, 1 Oct) `run_eval.score_e`: set E accepts a scheduled version (open, `valid_from` after today) besides closed ones, and an optional `expect_scheduled` the case can require; `eval/set_e.jsonl` e04 expects 14500 today and 16000 scheduled. Real model on the demo DB copy: set E 5/5 (was 4/5), median 1.7 s. `tests/test_scripts.py`
 
 **Next**
-12. (low priority) `/r/identity` gains `owner_reachable: bool` (requester backend pings the owner), replacing the browser no-cors probe
 
 **Blocked**
-- 12 waits on the CONTRACT owner: proposed change to CONTRACT §12 `/r/identity` -> `{name, type, fingerprint, owner_url, owner_reachable: bool}` (requester backend GETs `{OWNER_URL}/api/claims` with a 2 s timeout); affects `models.RIdentity`, `fixtures/api/r_identity.json`, `requester-types.ts` and `shell/status.tsx` (CONTRACT-owned)
 
 ## DATA (§6.4)
 

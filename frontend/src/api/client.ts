@@ -176,24 +176,6 @@ export const requesterApi = {
   storage: () => call<RStorage>("GET", "/r/storage"),
 }
 
-/**
- * Is the owner API reachable from this (requester) browser? A no-cors GET of the public /api/claims:
- * the response is opaque, but it only resolves if the owner answered.
- */
-export async function probeOwner(ownerUrl: string, timeoutMs = 3000): Promise<boolean> {
-  if (fixtureMode()) return true
-  try {
-    await fetch(`${ownerUrl.replace(/\/+$/, "")}/api/claims`, {
-      mode: "no-cors",
-      cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    return true
-  } catch {
-    return false
-  }
-}
-
 export interface ChatStreamHandlers {
   onMeta?: (data: ChatMeta) => void
   onToken?: (data: { text: string }) => void
