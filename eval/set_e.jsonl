@@ -1,5 +1,5 @@
 {"id": "e01", "statement": "My monthly rent is ₹14,500.", "field": "rent_amount", "expect_value": "14500"}
 {"id": "e02", "statement": "My salary went up to ₹70,000 this month.", "field": "monthly_income", "expect_value": "70000"}
 {"id": "e03", "statement": "My landlord is now Suresh Rao.", "field": "landlord", "expect_value": "Suresh Rao"}
-{"id": "e04", "statement": "My rent goes up to ₹16,000 from January.", "field": "rent_amount", "expect_value": "14500"}
+{"id": "e04", "statement": "My rent goes up to ₹16,000 from January.", "field": "rent_amount", "expect_value": "14500", "expect_scheduled": "16000"}
 {"id": "e05", "statement": "I switched jobs and now work at Orbit Labs.", "field": "employer", "expect_value": "Orbit Labs"}

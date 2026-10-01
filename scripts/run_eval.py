@@ -18,9 +18,10 @@ line, written by DATA) and run against a temporary COPY of kavach.db, so the dem
     D  {"id", "instruction", "expect_tools": ["draft_email", ...], "expect_to": "a@b.in"|null,
         "expect_date": "YYYY-MM-DD"|null}
        planner.plan + the executor's validation; nothing is executed.
-    E  {"id", "statement", "field", "expect_value"}
-       memory.teach, then the field's current timeline value must equal expect_value and older versions must be
-       superseded.
+    E  {"id", "statement", "field", "expect_value", "expect_scheduled"?}
+       memory.teach, then the field's current timeline value must equal expect_value, and every other version must
+       be superseded/closed or scheduled (open, valid_from after today: "from January" does not change today's
+       value). With expect_scheduled, a scheduled version must hold that value.
 
 Only measured numbers belong in the deck; the report states the sample size of every set.
 """
@@ -34,7 +35,7 @@ import statistics
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -272,6 +273,20 @@ def run_d(rows: list[dict]) -> dict[str, Any]:
     return _summary(out, lat, extra=("correct", "passes_validation"))
 
 
+def score_e(versions: list, expect_value: Any, expect_scheduled: Any = None, today: str | None = None) -> bool:
+    """Set E: exactly one current version with expect_value; every other one closed (superseded / valid_to) or
+    scheduled (still open, valid_from after today); expect_scheduled, if given, among the scheduled values."""
+    today = today or date.today().isoformat()
+    current = [v for v in versions if v.current]
+    scheduled = [v for v in versions if not v.current and not v.superseded_by and not v.valid_to
+                 and (v.valid_from or "") > today]
+    if len(current) != 1 or str(current[0].value) != str(expect_value):
+        return False
+    if not all(v.superseded_by or v.valid_to or v in scheduled for v in versions if not v.current):
+        return False
+    return expect_scheduled is None or any(str(v.value) == str(expect_scheduled) for v in scheduled)
+
+
 def run_e(rows: list[dict]) -> dict[str, Any]:
     from kavach.brain import memory
 
@@ -281,9 +296,7 @@ def run_e(rows: list[dict]) -> dict[str, Any]:
             _, dt, err = _timed(lambda: memory.teach(r["statement"]))
             lat.append(dt)
             versions = memory.timeline(r["field"]) if err is None else []
-            current = [v for v in versions if v.current]
-            ok = (len(current) == 1 and str(current[0].value) == str(r["expect_value"])
-                  and all(v.superseded_by or v.valid_to for v in versions if not v.current))
+            ok = score_e(versions, r["expect_value"], r.get("expect_scheduled"))
             out.append({"id": r["id"], "correct": ok, "error": err, "latency_s": round(dt, 2)})
     return _summary(out, lat, extra=("correct",))
 

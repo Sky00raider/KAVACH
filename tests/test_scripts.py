@@ -181,3 +181,19 @@ def test_bench_runs_against_ollama(monkeypatch):
     bench = _load("bench_models")
     monkeypatch.setattr(sys, "argv", ["bench_models.py", "--runs", "1"])
     assert bench.main() == 0
+
+
+def test_run_eval_scores_a_scheduled_value_as_correct():
+    """Set E e04 ("rent goes up to 16,000 from January"): today's value stays, the new one is scheduled."""
+    from types import SimpleNamespace as V
+
+    run_eval = _load("run_eval")
+    now = V(value="14500", current=True, superseded_by=None, valid_to=None, valid_from="2026-08-05")
+    later = V(value="16000", current=False, superseded_by=None, valid_to=None, valid_from="2027-01-01")
+    old = V(value="14000", current=False, superseded_by="f_now", valid_to="2026-08-05", valid_from="2026-01-01")
+    stray = V(value="9999", current=False, superseded_by=None, valid_to=None, valid_from="2026-02-01")  # open, past
+    assert run_eval.score_e([now, later, old], "14500", "16000", today="2026-10-01")
+    assert run_eval.score_e([now, later], "14500", today="2026-10-01")
+    assert not run_eval.score_e([now, later], "14500", "17000", today="2026-10-01")
+    assert not run_eval.score_e([now, stray], "14500", today="2026-10-01")
+    assert not run_eval.score_e([later], "16000", today="2026-10-01")
