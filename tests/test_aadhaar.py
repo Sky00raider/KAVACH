@@ -263,3 +263,38 @@ def test_check_script_output_is_masked(certs, uidai_key, tmp_path):
     out = script.check(z, SHARE)
     assert out == "verified: yes | issuer: uidai | name: A. I. | born: 2003"
     assert script.check(z, "0000") == "verified: no (wrong_share_code)"
+
+
+def test_removing_aadhaar_falls_back_to_the_id_card_and_wipes_the_row(vault, uidai_key):
+    ingest.ingest_file(vault.signed("id_card_signed", "id_card"))
+    ingest.ingest_file(vault.signed("bank_statement_signed", "bank_statement_signed"))
+    identity.import_aadhaar(kyc_zip(kyc_xml(uidai_key, name="Rohan Mehta", dob="02-11-2001")), SHARE)
+    assert {d.holder_status for d in vault.db.list_documents()} == {"mismatch"}
+
+    out = identity.remove_aadhaar()
+    assert (out.source, out.issuer) == ("signed_id", "mock_govt")
+    assert {d.holder_status for d in vault.db.list_documents()} == {"verified"}   # rechecked against the ID card
+    retired = vault.db.fetch_all("SELECT source, name, dob, last4, removed_at FROM identity WHERE source = 'aadhaar_okyc'")
+    assert [(r["name"], r["dob"], r["last4"]) for r in retired] == [(None, None, None)] and retired[0]["removed_at"]
+    rows = vault.db.fetch_all("SELECT detail_json FROM audit_log WHERE event = 'identity_removed'")
+    assert [r["detail_json"] for r in rows] == ['{"source":"aadhaar_okyc"}']
+    with pytest.raises(identity.NotRemovable):  # the ID card's anchor goes with its document, not this
+        identity.remove_aadhaar()
+
+
+def test_a_replaced_aadhaar_keeps_no_personal_data(vault, uidai_key):
+    identity.import_aadhaar(kyc_zip(kyc_xml(uidai_key)), SHARE)
+    identity.import_aadhaar(kyc_zip(kyc_xml(uidai_key, name="Ananya R Iyer")), SHARE)
+    rows = vault.db.fetch_all("SELECT name, last4, removed_at FROM identity ORDER BY rowid")
+    assert [(r["name"], r["last4"], r["removed_at"] is None) for r in rows] == \
+        [(None, None, False), ("Ananya R Iyer", "7310", True)]
+
+
+def test_remove_route(vault, uidai_key, monkeypatch):
+    monkeypatch.setattr(api, "_ollama_status", lambda: (False, set()))
+    client = TestClient(api.app, client=("127.0.0.1", 50000), base_url="http://127.0.0.1:8000")
+    token = {"X-Owner-Token": "test-owner-token"}
+    assert client.delete("/api/identity", headers=token).status_code == 409   # configured name: nothing to remove
+    identity.import_aadhaar(kyc_zip(kyc_xml(uidai_key)), SHARE)
+    res = client.delete("/api/identity", headers=token)
+    assert res.status_code == 200 and res.json()["source"] == "config"

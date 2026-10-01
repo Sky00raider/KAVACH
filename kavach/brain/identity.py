@@ -210,6 +210,26 @@ def import_aadhaar(zip_bytes: bytes, share_code: str) -> Identity:
     return current()
 
 
+class NotRemovable(Exception):
+    """The anchor in force comes from a document (or is the configured name): remove the document instead."""
+
+
+def remove_aadhaar() -> Identity:
+    """Retire the owner's Aadhaar anchor (its name, DOB and digits are wiped from the row), fall back to the next
+    verified ID card or the configured name, audit `identity_removed`, recheck every signed document. Raises
+    NotRemovable when the anchor in force is not an Aadhaar import."""
+    live = db.live_identity()
+    if live is None or live["source"] != "aadhaar_okyc":
+        raise NotRemovable()
+    db.retire_identity(utc_now())
+    audit.log("identity_removed", live["identity_id"], {"source": "aadhaar_okyc"})
+    from kavach.brain import ingest  # ingest imports this module
+
+    ingest.pin_next_id()
+    ingest.recheck_holders()
+    return current()
+
+
 def current() -> Identity:
     """The anchor, masked: initials and year of birth only (never the last 4 digits)."""
     a = anchor()

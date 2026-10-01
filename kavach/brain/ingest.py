@@ -253,8 +253,15 @@ def _anchor_left(doc_id: str) -> bool:
     if live is None or live["doc_id"] != doc_id:
         return False
     db.retire_identity(utc_now())
+    pin_next_id(skip=doc_id)
+    return True
+
+
+def pin_next_id(skip: str | None = None) -> bool:
+    """With no anchor in force, pin the oldest live verified ID card of an identity issuer (other than `skip`), if
+    any. True when one was pinned."""
     for d in db.signed_documents():
-        if d["doc_id"] == doc_id or d["holder_status"] != "verified" or \
+        if d["doc_id"] == skip or d["holder_status"] != "verified" or \
                 not identity.is_identity_document(d["doc_type"], "issuer_signed", d["iss"]):
             continue
         try:
@@ -262,8 +269,8 @@ def _anchor_left(doc_id: str) -> bool:
         except (OSError, RuntimeError):
             continue
         if identity.pin(d["doc_id"], raw, d["iss"]):
-            break
-    return True
+            return True
+    return False
 
 
 def recheck_holders(skip: str | None = None) -> None:

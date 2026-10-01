@@ -233,19 +233,24 @@ def live_identity() -> dict[str, Any] | None:
     return fetch_one("SELECT * FROM identity WHERE removed_at IS NULL ORDER BY verified_at DESC, rowid DESC LIMIT 1")
 
 
+# A retired anchor keeps no personal data (CONTRACT §8): only which source it was and when.
+_RETIRE_IDENTITY = ("UPDATE identity SET removed_at = ?, name = NULL, dob = NULL, last4 = NULL "
+                    "WHERE removed_at IS NULL")
+
+
 def set_identity(row: dict[str, Any]) -> None:
     """Retire any live identity row and insert `row` as the one in force, in one transaction."""
     cols = ("identity_id", "source", "issuer", "name", "dob", "last4", "doc_id", "verified_at", "removed_at")
     with connect() as conn:
-        conn.execute("UPDATE identity SET removed_at = ? WHERE removed_at IS NULL", (row["verified_at"],))
+        conn.execute(_RETIRE_IDENTITY, (row["verified_at"],))
         conn.execute(f"INSERT INTO identity ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                      tuple(row.get(c) for c in cols))
 
 
 def retire_identity(removed_at: str) -> None:
-    """No identity row in force any more (its document went)."""
+    """No identity row in force any more (its document went, or the owner removed their Aadhaar)."""
     with connect() as conn:
-        conn.execute("UPDATE identity SET removed_at = ? WHERE removed_at IS NULL", (removed_at,))
+        conn.execute(_RETIRE_IDENTITY, (removed_at,))
 
 
 # --- search index (brain/embed.py) ----------------------------------------------

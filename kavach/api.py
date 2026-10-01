@@ -298,6 +298,16 @@ async def identity_aadhaar(file: UploadFile, share_code: str = Form(..., max_len
         raise HTTPException(422 if exc.reason == "bad_signature" else 400, exc.reason) from None
 
 
+@owner.delete("/identity")
+def identity_remove() -> Identity:
+    """CONTRACT §6.6: retire the owner's Aadhaar anchor; 409 when the anchor comes from a document."""
+    try:
+        return identity.remove_aadhaar()
+    except identity.NotRemovable:
+        raise HTTPException(409, "the identity comes from a signed document; remove that document to change it") \
+            from None
+
+
 @owner.get("/entities")
 def entities(type: EntityType | None = None) -> list[Entity]:
     return db.list_entities(type)

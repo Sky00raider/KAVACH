@@ -17,6 +17,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react"
+import { toast } from "sonner"
 import { api, type Document, type Entity, type Graph, type Identity } from "@/api/client"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePoll } from "@/api/poll"
@@ -146,6 +147,20 @@ function AadhaarDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCh
  * name. Masked: initials and year of birth only. */
 function IdentityLine({ identity, onChanged }: { identity?: Identity; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const remove = async () => {
+    setRemoving(true)
+    try {
+      await api.removeIdentity()
+      setConfirmRemove(false)
+      onChanged()
+    } catch (e) {
+      toast.error(aadhaarErrorText(e))
+    } finally {
+      setRemoving(false)
+    }
+  }
   if (!identity) return null
   const v = identityView(identity)
   const Icon = v.tone === "unverified" ? ShieldQuestion : BadgeCheck
@@ -161,12 +176,33 @@ function IdentityLine({ identity, onChanged }: { identity?: Identity; onChanged:
         </span>
         {v.detail && <span className="block">{v.detail}</span>}
       </span>
-      {v.tone !== "uidai" && (
+      {v.tone !== "uidai" ? (
         <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => setOpen(true)}>
           Verify with Aadhaar
         </Button>
+      ) : (
+        <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => setConfirmRemove(true)}>
+          Remove
+        </Button>
       )}
       <AadhaarDialog open={open} onOpenChange={setOpen} onDone={onChanged} />
+      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove your Aadhaar identity?</DialogTitle>
+            <DialogDescription>
+              KAVACH deletes the name, date of birth and digits it kept, goes back to your signed ID card (or the
+              configured name) and rechecks which signed documents are yours.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmRemove(false)}>Keep</Button>
+            <Button variant="destructive" disabled={removing} onClick={() => void remove()}>
+              {removing && <Loader2 className="size-4 animate-spin" />} Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
