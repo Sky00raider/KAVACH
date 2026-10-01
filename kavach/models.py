@@ -734,6 +734,8 @@ class RIdentity(Model):
     type: str
     fingerprint: str
     owner_url: str
+    owner_reachable: bool = False
+    """The requester backend reached `{OWNER_URL}/api/claims` (200 within 2 s) when this was served."""
 
 
 class RAskIn(Model):

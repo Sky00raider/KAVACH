@@ -111,6 +111,11 @@ export interface components {
             fingerprint: string;
             /** Owner Url */
             owner_url: string;
+            /**
+             * Owner Reachable
+             * @default false
+             */
+            owner_reachable: boolean;
         };
         /** RRequest */
         RRequest: {

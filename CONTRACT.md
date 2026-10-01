@@ -416,7 +416,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/r/identity` | | `{name, type, fingerprint, owner_url}` |
+| GET | `/r/identity` | | `{name, type, fingerprint, owner_url, owner_reachable}`; `owner_reachable`: the requester backend's own `GET {OWNER_URL}/api/claims` answered 200 within 2 s, checked on every call |
 | POST | `/r/ask` | `{question}` | creates nonce, signs, calls owner `/api/ask` -> `{local_id, request_id, status}` |
 | GET | `/r/requests` | | `[{local_id, request_id, question, status, via:"web"|"agent", result: VerifierOutput|null}]` (polls owner, verifies on arrival) |
 | GET | `/r/storage` | | `{files:[{name, size, preview_json}]}` (proves only small JSON is held) |
@@ -444,7 +444,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 - Mode and token come from `window.__KAVACH__`. Every owner call sends `X-Owner-Token`.
 - Dev boot: under `npm run dev` only, the `kavach-dev-boot` Vite plugin serves `window.__KAVACH__={"mode":"owner","token":...}` (token from `OWNER_TOKEN` or `keys/owner_token`) and injects the token only when the dev server is bound to loopback (`server.host` pinned to `localhost`), the client address is loopback and the `Host` header names loopback. Run with `--host` and it refuses the token and logs a warning. Never part of a build.
 - Mode switch: when the served page fixed no mode, or under `npm run dev`, the sidebar offers an owner/requester switch so both UIs can be developed on one laptop. A built page served by `api.py` or `requester/app.py` always has its mode injected and shows no switch; owner and requester routes never mount together.
-- Status: owner mode shows `/api/health` (Ollama, per-role models, DB). Requester mode shows the owner connection instead: `owner_url` from `/r/identity` and whether the owner answers a no-cors `GET {owner_url}/api/claims`.
+- Status: owner mode shows `/api/health` (Ollama, per-role models, DB). Requester mode shows the owner connection instead: `owner_url` and `owner_reachable` from `/r/identity`, polled every 5 s.
 - Types: `npm run gen:types` runs `openapi-typescript` against `http://localhost:8000/openapi.json` and `:9000/openapi.json` into `src/api/types.ts` and `src/api/requester-types.ts`. Never hand-write API types. §10 stream payloads are not in OpenAPI; `src/api/client.ts` derives them from the generated `Citation` and `ChatResult`.
 - Fixture mode: `VITE_USE_FIXTURES=1` makes the API client return `fixtures/api/*.json` (and a canned chat stream), so every screen works with no backend.
 - Polling: `/api/ingest/events` and `/api/queue` every 2 s; `/r/requests` every 1.5 s.
