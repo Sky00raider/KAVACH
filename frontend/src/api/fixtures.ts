@@ -115,5 +115,7 @@ export function fixtureResponse(method: string, url: string, body?: unknown): un
     }
   }
 
+  if (method === "DELETE" && path === "/api/identity") return fixture("identity")
+
   throw new Error(`fixture mode: no fixture for ${method} ${path}`)
 }

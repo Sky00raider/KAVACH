@@ -194,7 +194,7 @@ The signature is stored in PDF metadata `keywords` as `{"iss":"mock_bank","sig":
 
 ### 6.6 Holder check (`brain/identity.py`)
 A signature proves who issued a document, not whose it is. The **identity anchor** is the owner's name and date of birth, from the first source in this order:
-- `aadhaar_okyc`: the owner imports their UIDAI Aadhaar Paperless Offline e-KYC ZIP and share code (`POST /api/identity/aadhaar`). `aadhaar.verify_okyc` opens the ZIP in memory, verifies the enveloped XML signature against a UIDAI certificate bundled in `kavach/trust/certs/` whose validity covers the file's `referenceId` timestamp, and returns only name, date of birth, the Aadhaar number's last 4 digits (from `referenceId`) and the generation time. RSA-SHA1 is accepted on this verification path only (UIDAI signs with it), never elsewhere. Only `name`, `dob`, `last4`, `issuer` (`uidai`) and `verified_at` are stored; the photo, address, contact hashes, XML, ZIP and share code are never stored, logged or returned. While in force, no ID card re-anchors. A new import replaces it.
+- `aadhaar_okyc`: the owner imports their UIDAI Aadhaar Paperless Offline e-KYC ZIP and share code (`POST /api/identity/aadhaar`). `aadhaar.verify_okyc` opens the ZIP in memory, verifies the enveloped XML signature against a UIDAI certificate bundled in `kavach/trust/certs/` whose validity covers the file's `referenceId` timestamp, and returns only name, date of birth, the Aadhaar number's last 4 digits (from `referenceId`) and the generation time. RSA-SHA1 is accepted on this verification path only (UIDAI signs with it), never elsewhere. Only `name`, `dob`, `last4`, `issuer` (`uidai`) and `verified_at` are stored; the photo, address, contact hashes, XML, ZIP and share code are never stored, logged or returned. While in force, no ID card re-anchors. A new import replaces it; `DELETE /api/identity` removes it (the anchor falls back to the next verified ID card, else `config`, and every signed document is rechecked).
 - `signed_id`: read in code (`Name:` / `Date of birth:`) from the first `issuer_signed` `id_card` of an identity issuer (`mock_govt`) ingested while no anchor exists. Pinned: a later ID card in another name is holder-checked like any document and never re-anchors. When the anchor's document is removed, the next live identity-issuer ID card whose `holder_status` is `verified` takes over, else `config`.
 - `config`: no signed ID: `config.OWNER_NAME`, no date of birth; the identity is `not_verified`.
 
@@ -302,7 +302,7 @@ CREATE TABLE audit_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, event TE
 ```
 - `documents.path`: relative to `VAULT_DIR`, forward slashes (`pdfs/rent_agreement.pdf`), same as `/api/ingest` and the `ingested` audit detail
 - `documents.holder_status`: `verified` | `mismatch` | `unknown` | NULL (§6.6); `init_db` adds the column to an older database
-- `identity`: one row per anchor ever set (§6.6), id prefix `id`; the live anchor is the newest row with `removed_at` NULL. `source`: `aadhaar_okyc` \| `signed_id`; `last4` is set only for `aadhaar_okyc` and is never returned by any route. Owner-only; never returned unmasked by any route
+- `identity`: one row per anchor ever set (§6.6), id prefix `id`; the live anchor is the newest row with `removed_at` NULL. `source`: `aadhaar_okyc` \| `signed_id`; `last4` is set only for `aadhaar_okyc` and is never returned by any route. A retired row keeps no personal data: `name`, `dob` and `last4` are set to NULL when it is retired. Owner-only; never returned unmasked by any route
 - `memory_candidates.kind`: `fact` | `decision`; `status`: `pending` | `accepted` | `discarded`
 - `requesters.status`: `pending` | `paired` | `blocked`
 - `requests.status`: `pending_pairing` | `pending` | `done`; `channel`: `web` | `mcp`
@@ -326,6 +326,7 @@ Owner routes and token injection also require the `Host` header to be `localhost
 | GET | `/api/ingest/events` | `?since=<seq>` | `{events:[{seq, ts, path, doc_id, signature_status, holder_status, entities_added, facts_added}], last_seq}`: the `ingested` audit entries with `seq > since` (`seq`, `ts` from the entry, the rest from its `detail`, §13); `last_seq` is the highest seq returned, else `since` |
 | GET | `/api/documents` | | `[Document]` |
 | GET | `/api/identity` | | `Identity` (§6.6, §7): the anchor, masked |
+| DELETE | `/api/identity` | | removes the owner's Aadhaar anchor (§6.6) -> `Identity` now in force; `409` when the anchor comes from a document (remove the document instead) or is the configured name |
 | POST | `/api/identity/aadhaar` | multipart `file` (the offline e-KYC `.zip`, at most 1 MB, so the multipart parser keeps it in memory; real files are ~5-15 kB) + form field `share_code` | `Identity` of the new anchor. `400 {"detail": reason}` for `not_a_zip`, `wrong_share_code`, `no_xml`, `too_large`, `malformed`; `422 {"detail": "bad_signature"}`. Nothing from the file is written to disk; the detail never echoes file content |
 | GET | `/api/entities` | `?type=` | `[Entity]` |
 | GET | `/api/facts` | `?field=&current=true` (`current` defaults to `true`; `false` includes superseded facts) | `[Fact]` |
@@ -424,7 +425,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 ## 13. Audit events
 
-`ingested`, `document_signature_failed`, `document_removed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`, `identity_verified`, `identity_verify_failed`.
+`ingested`, `document_signature_failed`, `document_removed`, `requester_pending`, `requester_paired`, `requester_blocked`, `request_received`, `request_auto_refused`, `request_cannot_confirm`, `request_refused_ledger`, `disclosure_answered`, `disclosure_declined`, `disclosure_denied`, `memory_taught`, `memory_candidate_accepted`, `task_planned`, `task_approved`, `task_rejected`, `task_executed`, `task_failed`, `wallet_low`, `request_rejected`, `identity_verified`, `identity_verify_failed`, `identity_removed`.
 
 `request_rejected`: a request that failed before entering the pipeline, or a poll that failed its checks. `ref_id` is the requester fingerprint (or null if the key is unparseable); `detail.reason` is one of `bad_sig`, `stale_ts`, `nonce_reuse`, `unknown_requester_blocked`, `unknown_request`, `wrong_requester`, `malformed` (`models.RejectReason`). `malformed` is a request to `/api/ask*` that fails validation (bad body, missing or non-integer `X-*` headers); it still returns `422`, and its `detail` is exactly `{reason, route, client_ip, error_type}`, never the body.
 
@@ -432,7 +433,7 @@ Keypair created on first run in `requester/data/`. Serves `frontend/dist` with `
 
 `document_removed`: logged by `ingest.remove_file` when a known, not-yet-removed document's file is deleted. `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id}` with `path` vault-relative.
 
-`identity_verified`: `ref_id` is the `identity_id`; `detail` is exactly `{source, issuer, verified_at}`. `identity_verify_failed`: `ref_id` null; `detail` is exactly `{source, reason}` (`AadhaarError.reason`). Neither ever holds a name, date of birth, digits or file content.
+`identity_verified`: `ref_id` is the `identity_id`; `detail` is exactly `{source, issuer, verified_at}`. `identity_verify_failed`: `ref_id` null; `detail` is exactly `{source, reason}` (`AadhaarError.reason`). `identity_removed`: `ref_id` is the retired `identity_id`; `detail` is exactly `{source}`. Neither ever holds a name, date of birth, digits or file content.
 
 `ingested`: `ref_id` is the `doc_id`; `detail` is exactly `{path, doc_id, signature_status, holder_status, chunks_added, entities_added, facts_added}` (`holder_status` absent in entries written before it: read as null) with `path` relative to `VAULT_DIR` (forward slashes). Counts and path only, never text or values. It is the source of `/api/ingest/events`.
 

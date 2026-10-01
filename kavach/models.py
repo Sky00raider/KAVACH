@@ -646,6 +646,7 @@ AuditEvent = Literal[
     "request_refused_ledger", "disclosure_answered", "disclosure_declined", "disclosure_denied",
     "memory_taught", "memory_candidate_accepted", "task_planned", "task_approved", "task_rejected",
     "task_executed", "task_failed", "wallet_low", "request_rejected", "identity_verified", "identity_verify_failed",
+    "identity_removed",
 ]
 # detail.reason of a request_rejected entry. unknown_request and wrong_requester both return the same 404.
 RejectReason = Literal[

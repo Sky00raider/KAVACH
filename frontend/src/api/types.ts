@@ -103,7 +103,11 @@ export interface paths {
         get: operations["identity_anchor_api_identity_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Identity Remove
+         * @description CONTRACT §6.6: retire the owner's Aadhaar anchor; 409 when the anchor comes from a document.
+         */
+        delete: operations["identity_remove_api_identity_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -547,7 +551,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "ingested" | "document_signature_failed" | "document_removed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected" | "identity_verified" | "identity_verify_failed";
+            event: "ingested" | "document_signature_failed" | "document_removed" | "requester_pending" | "requester_paired" | "requester_blocked" | "request_received" | "request_auto_refused" | "request_cannot_confirm" | "request_refused_ledger" | "disclosure_answered" | "disclosure_declined" | "disclosure_denied" | "memory_taught" | "memory_candidate_accepted" | "task_planned" | "task_approved" | "task_rejected" | "task_executed" | "task_failed" | "wallet_low" | "request_rejected" | "identity_verified" | "identity_verify_failed" | "identity_removed";
             /** Ref Id */
             ref_id?: string | null;
             /** Detail */
@@ -1550,6 +1554,37 @@ export interface operations {
         };
     };
     identity_anchor_api_identity_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-owner-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Identity"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    identity_remove_api_identity_delete: {
         parameters: {
             query?: never;
             header?: {

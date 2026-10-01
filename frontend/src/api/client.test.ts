@@ -42,6 +42,7 @@ describe("fixture mode", () => {
     expect(await api.documents()).toEqual(fixtures.documents)
     expect(await api.identity()).toEqual(fixtures.identity)
     expect((await api.importAadhaar(new File(["zip"], "offlineaadhaar.zip"), "4821")).source).toBe("aadhaar_okyc")
+    expect(await api.removeIdentity()).toEqual(fixtures.identity)
     expect(await api.entities("person")).toEqual(fixtures.entities)
     expect(await api.facts({ current: false })).toEqual(fixtures.facts)
     expect(await api.graph({ entity_id: "e_owner", hops: 2 })).toEqual(fixtures.graph)

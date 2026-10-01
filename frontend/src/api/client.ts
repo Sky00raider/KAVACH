@@ -104,7 +104,7 @@ interface CallOptions {
   owner?: boolean
 }
 
-async function call<T>(method: "GET" | "POST", path: string, opts: CallOptions = {}): Promise<T> {
+async function call<T>(method: "GET" | "POST" | "DELETE", path: string, opts: CallOptions = {}): Promise<T> {
   const url = withQuery(path, opts.query)
   if (fixtureMode()) {
     const { fixtureResponse } = await loadFixtures()
@@ -145,6 +145,8 @@ export const api = {
     form.append("share_code", shareCode)
     return call<Identity>("POST", "/api/identity/aadhaar", { form, owner: true })
   },
+  /** Retire the Aadhaar anchor (409 when the anchor comes from a document). */
+  removeIdentity: () => call<Identity>("DELETE", "/api/identity", { owner: true }),
   entities: (type?: string) => get<Entity[]>("/api/entities", { type }),
   facts: (opts: { field?: string; current?: boolean } = {}) => get<Fact[]>("/api/facts", opts),
   graph: (opts: { entity_id?: string; hops?: number } = {}) => get<Graph>("/api/graph", opts),
