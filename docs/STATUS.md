@@ -144,13 +144,15 @@ Notes: structured parse always sends `think=false`. qwen3:4b returns `"value": "
 **Done**
 - Eval sets written in `eval/` (2026-09-30): A 15 (synthetic, all `"real": false`; 4+ need 2 sources, 5 about projects or decisions), B 15 (all synthetic; expectations derived from CONTRACT §5 and the vault, not from system output), D 5 (incl. one with no recipient in the vault, expecting no email), E 5 (incl. one "from January" case). Set C untouched (generated in code)
 - Eval dry run (30 Sep, not for the deck: owner laptop CPU, qwen2.5:3b, a scratch `reset_demo.py` copy, after 69b85bd): A 15/15 answers, 14/15 citations (a01 cited the signed bank statement, which its `expect_docs` didn't list: added), B 15/15 answer types with 0 wrong disclosures, C 6/6 blocked with the chain intact, D 5/5 (5/5 pass validation), E 4/5 (e04 is the scheduled "from January" case the scorer can't pass yet; see TRUST proposal under BRAIN Blocked). Median latency A 10.9 s, B 1.5 s, D 3.8 s, E 1.2 s. Deck numbers: rerun on the demo (GPU) laptop after its reset
+- README rewritten to the organisers' template (1 Oct): pitch, badges, screenshots, architecture + two sequence diagrams (Mermaid), docs links, prerequisites, install (one and two laptops), env var matrix from `config.py`, usage snippets, test/QA commands, benchmarks (CPU-only numbers by owner decision; the GPU rerun is dropped), troubleshooting, security reporting, contributing, licences, team. Screenshots in `docs/media/` taken from the real app (qwen2.5:3b, CPU) on a scratch copy of the reset demo DB. Badges are static: no CI workflow yet
 
 **Next**
 - Set A still needs the outside person's 15 questions (written from the vault files only, before they see the system); they replace the synthetic ones and go in as `"real": true`
 - Redact the real bank statement into `private/` and add 1-2 set B cases that use it (`"real": true`)
 - By Sun 27: `demo_data/notes/` (5-8 notes with `[[links]]`), `inbox_note.md`, `chats/landlord.txt`, rent agreement text in `demo_data/templates/`, details for mock bank statement, marksheet and ID card
 - By Mon 28, 6 pm: `docs/pitch/demo_script.md`, deck on organisers' template, test every screen, record demo video
-- Tue 29 to Thu 1: eval sets B-E, README final, rehearsals and Q&A prep
+- Tue 29 to Thu 1: eval sets B-E, rehearsals and Q&A prep
+- README: add the demo video link (placeholder comment at the top); CI workflow for a real build/coverage badge; enable GitHub private vulnerability reporting (the README's Security link needs it)
 
 **Blocked**
 - Eval set A needs drafted vault files first
