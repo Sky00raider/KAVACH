@@ -42,6 +42,9 @@ rental form" or "Save a note that...". KAVACH plans it (recipient from your grap
 facts), shows a preview, and does nothing until you approve. Then it writes real files: an email draft, a calendar
 reminder, a filled PDF form, a note. It warns when an email would reveal private numbers.
 
+**Light or dark.** A sun/moon button at the top of the sidebar switches the whole app, the knowledge graph
+included, between dark (the default) and light. The choice is remembered on this device.
+
 ## 2. Identity: whose documents are yours
 
 **The problem.** A bank's signature proves the bank issued a document, not that it is yours. Without a check, someone

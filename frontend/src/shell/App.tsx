@@ -10,6 +10,7 @@ import Verify from "@/pages/trust/Verify"
 import { Layout } from "./Layout"
 import { ModeProvider, useMode } from "./mode"
 import { HOME } from "./nav"
+import { ThemeProvider } from "./theme"
 
 /** CONTRACT §14: owner routes and the requester route never mount together. */
 function AppRoutes() {
@@ -36,11 +37,13 @@ function AppRoutes() {
 
 export function App() {
   return (
-    <ModeProvider>
-      <TooltipProvider delayDuration={200}>
-        <AppRoutes />
-        <Toaster position="bottom-right" />
-      </TooltipProvider>
-    </ModeProvider>
+    <ThemeProvider>
+      <ModeProvider>
+        <TooltipProvider delayDuration={200}>
+          <AppRoutes />
+          <Toaster position="bottom-right" />
+        </TooltipProvider>
+      </ModeProvider>
+    </ThemeProvider>
   )
 }

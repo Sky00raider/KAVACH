@@ -1,11 +1,34 @@
 import { NavLink, Outlet, useNavigate } from "react-router"
-import { FlaskConical, ShieldHalf } from "lucide-react"
+import { FlaskConical, Moon, ShieldHalf, Sun } from "lucide-react"
 import { fixtureMode, type Mode } from "@/api/boot"
 import { Separator } from "@/components/ui/separator"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/components/lib/utils"
 import { useMode } from "./mode"
 import { HOME, NAV } from "./nav"
 import { OwnerConnection, OwnerHealth } from "./status"
+import { useTheme } from "./theme"
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme()
+  const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+  const Icon = theme === "dark" ? Sun : Moon
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={label}
+          className="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+        >
+          <Icon className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 function ModeSwitch() {
   const { mode, setMode } = useMode()
@@ -50,6 +73,7 @@ function Sidebar() {
           <p className="text-sm font-semibold tracking-wide">KAVACH</p>
           <p className="text-xs text-muted-foreground">{mode === "owner" ? "Your second brain" : "Verifier"}</p>
         </div>
+        <ThemeToggle />
       </div>
 
       <nav className="flex-1 space-y-5 px-3 py-2">

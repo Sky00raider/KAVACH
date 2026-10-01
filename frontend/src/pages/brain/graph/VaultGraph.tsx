@@ -1,10 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from "react-force-graph-2d"
 import type { Graph } from "@/api/client"
+import { useTheme, type Theme } from "@/shell/theme"
 import {
   FONT,
-  OWNER_COLOR,
-  TYPE_STYLE,
   boxesOverlap,
   buildView,
   collideBoxes,
@@ -14,8 +13,10 @@ import {
   gravity,
   labelRect,
   nodeBox,
+  ownerColor,
   pickLabels,
   relLabel,
+  typeColor,
   zoomLabelPx,
   type EntityType,
   type LabelCandidate,
@@ -39,9 +40,44 @@ export interface VaultGraphHandle {
 const FONT_CSS = `500 ${FONT}px "Inter Variable", ui-sans-serif, system-ui, sans-serif`
 const COOLDOWN_TICKS = 220
 const WARMUP_TICKS = 40
-const PRIMARY = "#5eead4"
-const TEXT = "rgba(226, 232, 240, 0.95)"
-const HALO = "rgba(22, 25, 33, 0.9)"
+/** Canvas colours per theme (the canvas cannot read the CSS tokens). */
+const PALETTE: Record<Theme, {
+  primary: string
+  text: string
+  halo: string
+  ownerGlow: string
+  ownerRing: string
+  selectedRing: string
+  link: string
+  linkClosed: string
+  linkFaint: string
+  linkEmphasis: string
+}> = {
+  dark: {
+    primary: "#5eead4",
+    text: "rgba(226, 232, 240, 0.95)",
+    halo: "rgba(22, 25, 33, 0.9)",
+    ownerGlow: "rgba(94, 234, 212, 0.16)",
+    ownerRing: "rgba(255, 255, 255, 0.85)",
+    selectedRing: "#ffffff",
+    link: "rgba(255, 255, 255, 0.2)",
+    linkClosed: "rgba(255, 255, 255, 0.1)",
+    linkFaint: "rgba(255, 255, 255, 0.05)",
+    linkEmphasis: "rgba(94, 234, 212, 0.75)",
+  },
+  light: {
+    primary: "#0d9488",
+    text: "rgba(30, 41, 59, 0.95)",
+    halo: "rgba(250, 251, 253, 0.9)",
+    ownerGlow: "rgba(13, 148, 136, 0.14)",
+    ownerRing: "rgba(255, 255, 255, 0.95)",
+    selectedRing: "#0f172a",
+    link: "rgba(15, 23, 42, 0.22)",
+    linkClosed: "rgba(15, 23, 42, 0.12)",
+    linkFaint: "rgba(15, 23, 42, 0.06)",
+    linkEmphasis: "rgba(13, 148, 136, 0.75)",
+  },
+}
 /** Screen pixels kept free when fitting: the legend and buttons sit on top, the hint at the bottom. */
 const FIT_PAD = { top: 84, right: 32, bottom: 40, left: 32 }
 /** Width of the entity panel over the canvas's right side, plus its margin. */
@@ -71,6 +107,8 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
   selected: string | null
   onSelect: (id: string | null) => void
 }>(function VaultGraph({ graph, hiddenTypes, showClosed, showUnlinked, highlight, docFilter, selected, onSelect }, ref) {
+  const { theme } = useTheme()
+  const pal = PALETTE[theme]
   const fg = useRef<ForceGraphMethods<N, L> | undefined>(undefined)
   const wrap = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -204,34 +242,34 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
     if (node.owner) {
       ctx.beginPath()
       ctx.arc(x, y, node.r + 2.6, 0, 2 * Math.PI)
-      ctx.fillStyle = "rgba(94, 234, 212, 0.16)"
+      ctx.fillStyle = pal.ownerGlow
       ctx.fill()
     }
     ctx.beginPath()
     ctx.arc(x, y, node.r, 0, 2 * Math.PI)
-    ctx.fillStyle = node.owner ? OWNER_COLOR : TYPE_STYLE[node.type].color
+    ctx.fillStyle = node.owner ? ownerColor(theme) : typeColor(node.type, theme)
     ctx.fill()
     if (node.owner) {
       ctx.lineWidth = 1
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)"
+      ctx.strokeStyle = pal.ownerRing
       ctx.stroke()
     }
     if (highlight.has(node.id) && !dim) {
       ctx.beginPath()
       ctx.arc(x, y, node.r + 1.8, 0, 2 * Math.PI)
       ctx.lineWidth = 1.1
-      ctx.strokeStyle = PRIMARY
+      ctx.strokeStyle = pal.primary
       ctx.stroke()
     }
     if (node.id === selected) {
       ctx.beginPath()
       ctx.arc(x, y, node.r + (highlight.has(node.id) ? 3.4 : 1.8), 0, 2 * Math.PI)
       ctx.lineWidth = 1.1
-      ctx.strokeStyle = "#ffffff"
+      ctx.strokeStyle = pal.selectedRing
       ctx.stroke()
     }
     ctx.globalAlpha = 1
-  }, [emphasis, highlight, selected])
+  }, [emphasis, highlight, selected, theme, pal])
 
   const paintPointer = useCallback((node: N, color: string, ctx: CanvasRenderingContext2D) => {
     const x = node.x ?? 0, y = node.y ?? 0
@@ -277,9 +315,9 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
       const dim = emphasis !== null && !emphasis.has(c.id)
       ctx.globalAlpha = dim ? 0.3 : 1
       ctx.lineWidth = FONT * 0.4
-      ctx.strokeStyle = HALO
+      ctx.strokeStyle = pal.halo
       ctx.strokeText(c.text, c.node.x!, c.rect.top)
-      ctx.fillStyle = c.node.owner ? OWNER_COLOR : TEXT
+      ctx.fillStyle = c.node.owner ? ownerColor(theme) : pal.text
       ctx.fillText(c.text, c.node.x!, c.rect.top)
     }
     ctx.globalAlpha = 1
@@ -294,13 +332,13 @@ export const VaultGraph = forwardRef<VaultGraphHandle, {
       el.dataset.labelNodeOverlaps = String(onNodes)
       el.dataset.labelPx = (FONT * k).toFixed(1)
     }
-  }, [data, visible, emphasis, selected, size.height, docFilter, highlight])
+  }, [data, visible, emphasis, selected, size.height, docFilter, highlight, theme, pal])
 
   const linkColor = useCallback((l: L) => {
     const s = endId(l.source), t = endId(l.target)
-    if (emphasis === null) return l.closed ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.2)"
-    return emphasis.has(s) && emphasis.has(t) ? "rgba(94, 234, 212, 0.75)" : "rgba(255, 255, 255, 0.05)"
-  }, [emphasis])
+    if (emphasis === null) return l.closed ? pal.linkClosed : pal.link
+    return emphasis.has(s) && emphasis.has(t) ? pal.linkEmphasis : pal.linkFaint
+  }, [emphasis, pal])
 
   return (
     <div ref={wrap} className="absolute inset-0" data-testid="vault-graph">

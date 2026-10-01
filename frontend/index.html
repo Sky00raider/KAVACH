@@ -5,6 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KAVACH</title>
+    <script>
+      // Apply the saved theme before first paint (shell/theme.tsx owns the key).
+      try {
+        if (localStorage.getItem("kavach.theme") === "light") document.documentElement.classList.remove("dark")
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

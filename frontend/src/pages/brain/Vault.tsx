@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/components/lib/utils"
+import { useTheme } from "@/shell/theme"
 import { basename, timeAgo } from "./ask/answer"
 import { useIngest } from "./ask/IngestStrip"
 import { SourceIcon, SourcePopover } from "./ask/Sources"
@@ -33,7 +34,6 @@ import { aadhaarErrorText, identityView } from "./identity"
 import { clearLastAnswer, loadLastAnswer, type LastAnswer } from "./lastAnswer"
 import {
   DEFAULT_HIDDEN_TYPES,
-  OWNER_COLOR,
   OWNER_ID,
   TYPE_ORDER,
   TYPE_STYLE,
@@ -42,8 +42,10 @@ import {
   docEntityIds,
   docFilterNotice,
   neighbours,
+  ownerColor,
   relLabel,
   signatureView,
+  typeColor,
   unlinkedIds,
   type EntityType,
 } from "./graph/graph"
@@ -62,10 +64,11 @@ function useStable<T>(value: T | undefined): T | undefined {
 }
 
 function Dot({ type, owner, className }: { type: EntityType; owner?: boolean; className?: string }) {
+  const { theme } = useTheme()
   return (
     <span
       className={cn("inline-block size-2.5 shrink-0 rounded-full", className)}
-      style={{ backgroundColor: owner ? OWNER_COLOR : TYPE_STYLE[type].color }}
+      style={{ backgroundColor: owner ? ownerColor(theme) : typeColor(type, theme) }}
     />
   )
 }

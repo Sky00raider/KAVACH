@@ -6,6 +6,9 @@
  */
 import type { Document, Entity, Graph } from "@/api/client"
 
+/** shell/theme.tsx's Theme, restated so this file stays React-free. */
+type Theme = "dark" | "light"
+
 export type EntityType = Entity["type"]
 export type GraphEdge = Graph["edges"][number]
 export type GraphNodeIn = Graph["nodes"][number]
@@ -29,6 +32,28 @@ export const TYPE_STYLE: Record<EntityType, { label: string; plural: string; col
   DOCUMENT: { label: "Document", plural: "Documents", color: "#94a3b8" },
 }
 export const OWNER_COLOR = "#5eead4"
+
+/** The same hues a few shades darker: the dark theme's pastels wash out on a light background. */
+const LIGHT_TYPE_COLOR: Record<EntityType, string> = {
+  PERSON: "#2563eb",
+  PROJECT: "#d97706",
+  DECISION: "#db2777",
+  CONCEPT: "#9333ea",
+  OBLIGATION: "#65a30d",
+  EVENT: "#ea580c",
+  ORG: "#4f46e5",
+  PLACE: "#059669",
+  DOCUMENT: "#64748b",
+}
+const LIGHT_OWNER_COLOR = "#0d9488"
+
+export function typeColor(type: EntityType, theme: Theme): string {
+  return theme === "light" ? LIGHT_TYPE_COLOR[type] : TYPE_STYLE[type].color
+}
+
+export function ownerColor(theme: Theme): string {
+  return theme === "light" ? LIGHT_OWNER_COLOR : OWNER_COLOR
+}
 
 /** Labels always drawn for these types and the owner; the rest on hover, selection or zoom. */
 export const LABELLED_TYPES: ReadonlySet<EntityType> = new Set<EntityType>(["PERSON", "PROJECT", "DECISION"])

@@ -7,13 +7,15 @@ import {
 } from "lucide-react"
 
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { useTheme } from "@/shell/theme"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  // KAVACH is dark-only (theme set on <html>), so no next-themes.
+  // Theme comes from the shell's ThemeProvider, so no next-themes.
+  const { theme } = useTheme()
 
   return (
     <Sonner
-      theme="dark"
+      theme={theme}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,
