@@ -187,12 +187,51 @@ def with_graph(ranked: list[ScoredChunk], named: list[str]) -> tuple[list[Scored
     return sorted(boosted, key=lambda c: -c.score), linked
 
 
-def retrieve(question: str) -> tuple[list[ScoredChunk], list[str], list[str], dict[str, list[str]]]:
+# A follow-up leans on the question before it: "and when does it end?", "what about the deposit?", "how much is it?"
+_FOLLOW_UP_START = re.compile(r"^\W*(?:and|also|so|then|but|what about|how about)\b", re.IGNORECASE)
+_BACK_REFERENCE = re.compile(r"\b(?:it|its|it's|that|this|these|those|they|them|their|there|he|she|him|her|his|"
+                             r"same)\b", re.IGNORECASE)
+FOLLOW_UP_MAX_WORDS = 4  # content words (embed.tokenize) a back-referring question may have and still lean on the last
+
+
+def follow_up_context(question: str, history: list[ChatTurn]) -> str | None:
+    """The owner's previous question when this one is a follow-up that cannot stand alone - it starts with
+    "and"/"also"/"what about"..., or refers back ("it", "that", "they"...) with at most FOLLOW_UP_MAX_WORDS content
+    words - else None. Plain code. It only widens retrieval; the model gets the question as asked, with the history
+    (`_history`) to resolve "it"."""
+    prev = next((_SPACE_BEFORE_PUNCT.sub("", _CITE.sub("", t.content)).strip() for t in reversed(history)
+                 if t.role == "user" and t.content.strip()), "")
+    if not prev:
+        return None
+    leans = bool(_FOLLOW_UP_START.search(question)) or (
+        bool(_BACK_REFERENCE.search(question)) and len(embed.tokenize(question)) <= FOLLOW_UP_MAX_WORDS)
+    return prev if leans else None
+
+
+def _best_of(*searches: list[ScoredChunk]) -> list[ScoredChunk]:
+    """Hits of several searches, each chunk at its best score, best first. Every search is min-max normalised (its
+    best hit is near 1), so each one's top chunks stay near the top."""
+    best: dict[str, ScoredChunk] = {}
+    for hits in searches:
+        for c in hits:
+            if c.chunk_id not in best or c.score > best[c.chunk_id].score:
+                best[c.chunk_id] = c
+    return sorted(best.values(), key=lambda c: -c.score)
+
+
+def retrieve(question: str, context: str | None = None
+             ) -> tuple[list[ScoredChunk], list[str], list[str], dict[str, list[str]]]:
     """(chunks for the prompt, excluded_docs, entity ids the question names, {chunk_id: neighbour ids}).
-    Documents whose signature check failed are never used; their paths are reported when they would otherwise
-    have been selected (CONTRACT §10)."""
-    named = entities.find_in_question(question)
-    ranked, linked = with_graph(embed.search(question, k=SEARCH_K), named)
+    With a follow-up's `context` (the previous question), the question alone and context + question are both
+    searched and merged (`_best_of`): "what about the deposit?" keeps its own topic, "who do I pay it to?" gets
+    the rent context. Documents whose signature check failed are never used; their paths are reported when they
+    would otherwise have been selected (CONTRACT §10)."""
+    widened = f"{context} {question}" if context else question
+    named = entities.find_in_question(widened)
+    hits = embed.search(question, k=SEARCH_K)
+    if context:
+        hits = _best_of(hits, embed.search(widened, k=SEARCH_K))
+    ranked, linked = with_graph(hits, named)
     docs = db.document_status(c.doc_id for c in ranked)
     invalid = {d for d, row in docs.items() if row["signature_status"] == "invalid"}
     excluded = list(dict.fromkeys(docs[c.doc_id]["path"] for c in _select(ranked) if c.doc_id in invalid))
@@ -539,8 +578,10 @@ def statement_sentences(message: str) -> list[str]:
 def answer_stream(question: str, history: list[ChatTurn]) -> Iterator[ChatEvent]:
     """§10 events: meta, token..., final, done. An LLMError mid-stream propagates (api.sse reports it)."""
     start = time.perf_counter()
-    chunks, excluded, named, linked = retrieve(question)
-    fact_chunks = condition_chunks(question, entities_used(named, linked, chunks)) + known_fact_chunks(question)
+    context = follow_up_context(question, history)
+    widened = f"{context} {question}" if context else question
+    chunks, excluded, named, linked = retrieve(question, context)
+    fact_chunks = condition_chunks(widened, entities_used(named, linked, chunks)) + known_fact_chunks(widened)
     history_msgs, chunks = fit_context(_history(history), chunks)
     chunks = fact_chunks + chunks  # additive only: never remove a retrieved chunk, even one a fact also covers
     refs = [ChunkRef(n=n, chunk_id=c.chunk_id, doc_id=c.doc_id, locator=c.locator) for n, c in enumerate(chunks, 1)]

@@ -605,3 +605,51 @@ def test_real_model_ignores_instructions_inside_chunks(warm_llm, fresh_db, tmp_p
     final, cited = _ask("How much rent do I pay each month?")
     assert "HACKED" not in final.answer.upper()
     assert final.citation_ok and "note: rent.md" in cited and "15" in final.answer
+
+
+# --- follow-up retrieval (BRAIN item 14) ------------------------------------------------------------------------
+
+
+def _turns(*questions):
+    out = []
+    for q in questions:
+        out += [ChatTurn(role="user", content=q), ChatTurn(role="assistant", content="Some answer [1].")]
+    return out
+
+
+@pytest.mark.parametrize("question, follows", [
+    ("and when does it end?", True),
+    ("When does it end?", True),
+    ("What about the deposit?", True),
+    ("How much is it?", True),
+    ("Also the landlord's number", True),
+    ("Who is my landlord?", False),                     # no back-reference: stands alone
+    ("What's my rent?", False),
+    ("What did I decide about renewing the flat after the landlord said rent goes up?", False),  # refers, but long
+])
+def test_follow_up_context_only_for_follow_ups(question, follows):
+    history = _turns("Hi", "When does my rent agreement end [2]?")
+    assert chat.follow_up_context(question, history) == ("When does my rent agreement end?" if follows else None)
+
+
+def test_follow_up_context_without_history():
+    assert chat.follow_up_context("and when does it end?", []) is None
+
+
+def test_follow_up_searches_alone_and_with_the_previous_question_but_asks_as_typed(fake, monkeypatch):
+    queries = []
+    monkeypatch.setattr(embed, "search", lambda query, k=8: queries.append(query) or fake.chunks[:k])
+    fake.reply = "It ends on 31 December 2026 [1]."
+    list(chat.answer_stream("and when does it end?", _turns("What is my rent agreement?")))
+    assert queries == ["and when does it end?", "What is my rent agreement? and when does it end?"]
+    assert fake.messages[-1]["content"].rstrip().endswith("Question: and when does it end?")
+    queries.clear()
+    list(chat.answer_stream("Who is my landlord?", _turns("What is my rent agreement?")))
+    assert queries == ["Who is my landlord?"]
+
+
+def test_best_of_keeps_each_chunk_at_its_best_score():
+    a = ScoredChunk(chunk_id="c_a", doc_id="d", locator="p1", text="deposit", score=0.95)
+    b = ScoredChunk(chunk_id="c_b", doc_id="d", locator="p2", text="renew", score=0.4)
+    b_better = b.model_copy(update={"score": 1.0})
+    assert [(c.chunk_id, c.score) for c in chat._best_of([a, b], [b_better])] == [("c_b", 1.0), ("c_a", 0.95)]
