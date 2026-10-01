@@ -104,7 +104,7 @@ def test_same_condition_twice_is_checked_once(demo):
 
 
 def test_the_check_reaches_the_prompt_first(demo, monkeypatch):
-    monkeypatch.setattr(chat, "retrieve", lambda q: ([], [], [], {}))  # no search, no entity-name embeddings
+    monkeypatch.setattr(chat, "retrieve", lambda q, context=None: ([], [], [], {}))  # no search, no entity-name embeddings
     captured = {}
 
     def fake_stream(messages, stats=None):
