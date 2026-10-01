@@ -20,12 +20,15 @@ Students (marksheets, scholarships, rentals), young professionals (salary slips,
 | Memory | Temporal facts with supersession; learns from conversation only after the owner confirms |
 | Reasoning | Cited answers across documents; outsider questions mapped to minimal claims, decided by code |
 | Action | Owner-approved tasks executed through MCP tools; issuer-verifiable disclosures to people and AI agents |
+| Identity | A signed document counts as the owner's only if it is in their name; identity from Aadhaar offline e-KYC (UIDAI signature checked offline) or a signed ID card |
+
+Full feature list in plain words: [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## Architecture
 _TODO: final diagram. See `CONTRACT.md` §1-2 for components and ports._
 
 ## Real vs simulated
-- **Real:** local inference (Ollama, open-weight models), ingestion, graph, memory, selective-disclosure cryptography, holder binding, pairing, disclosure ledger, MCP servers and client, hash-chained audit.
+- **Real:** local inference (Ollama, open-weight models), ingestion, graph, memory, selective-disclosure cryptography, holder binding, pairing, disclosure ledger, MCP servers and client, hash-chained audit, the holder check, and Aadhaar offline e-KYC verification against UIDAI's published certificates (tested with UIDAI-format test files; a real-file check is pending).
 - **Simulated:** the issuers (a mock bank, board and government office signing with Ed25519, modelled on DigiLocker's issuer-signed documents). "Sending" an email writes a `.eml` file to `outbox/`, because the demo is offline.
 - **Not claimed:** SD-JWT compliance (we are SD-JWT-style), zero-knowledge proofs, DigiLocker integration, organisation mode.
 

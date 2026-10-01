@@ -1,6 +1,7 @@
 # STATUS.md
 
 Progress per track. Update your track's section in every commit that completes a step.
+The plain-language feature list (for scripts, pitch, README) is `docs/FEATURES.md`; keep it in step with what is done here.
 Step numbers refer to `docs/BUILD_PLAN.md` §6.
 
 ## Milestones

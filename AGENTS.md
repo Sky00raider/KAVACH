@@ -79,6 +79,7 @@ Progress lives in docs/STATUS.md; update your track's section in every commit th
 - Any design change: add one line to `docs/DECISIONS.md` in the same commit.
 
 ## Where to look
+- What KAVACH does, in plain words (for demo scripts, pitch, README): `docs/FEATURES.md`. Update it when a feature changes
 - Interfaces, schemas, endpoints, JSON formats: `CONTRACT.md`
 - Component behaviour, build order, milestones, cut list: `docs/BUILD_PLAN.md`
 - Why something is the way it is: `docs/DECISIONS.md`

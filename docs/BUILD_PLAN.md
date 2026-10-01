@@ -2,6 +2,10 @@
 
 Interfaces live in `CONTRACT.md`. This file covers behaviour, order and dates.
 
+> **Out of date for features since 30 Sep 2026.** It is the original plan. What KAVACH does now: `docs/FEATURES.md`
+> (plain words) and `docs/STATUS.md` (technical detail, measured runs). Added since this plan: the holder check and
+> identity anchor (Aadhaar offline e-KYC, signed ID card), long-chat extraction, chat follow-ups.
+
 ## 1. Dates that matter
 
 | When | What |
